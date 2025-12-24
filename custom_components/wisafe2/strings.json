@@ -1,0 +1,160 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WiSafe2 Bridge Connection",
+        "description": "Configure the serial port connection to your WiSafe2 Bridge.",
+        "data": {
+          "serial_port": "Serial Port",
+          "baud_rate": "Baud Rate"
+        },
+        "data_description": {
+          "serial_port": "The USB serial port where your WiSafe2 bridge is connected (e.g., /dev/ttyUSB0)",
+          "baud_rate": "Serial communication speed (default: 115200)"
+        }
+      },
+      "devices": {
+        "title": "Configure Devices",
+        "description": "You have configured {device_count} device(s).\n\n{device_list}\n\nWould you like to add another device?",
+        "data": {
+          "add_device": "Add another device"
+        }
+      },
+      "add_device": {
+        "title": "Add WiSafe2 Device",
+        "description": "Enter the details for your WiSafe2 alarm device.",
+        "data": {
+          "device_id": "Device ID",
+          "model": "Device Model",
+          "name": "Device Name",
+          "location": "Location"
+        },
+        "data_description": {
+          "device_id": "6-character hexadecimal device ID (e.g., 2d8d01)",
+          "model": "The model type of the alarm",
+          "name": "Friendly name for the device",
+          "location": "Room or area where the device is installed"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the serial port. Please check the connection.",
+      "unknown": "An unexpected error occurred.",
+      "invalid_device_id": "Device ID must be a 6-character hexadecimal string.",
+      "device_already_exists": "A device with this ID has already been added."
+    },
+    "abort": {
+      "already_configured": "This serial port is already configured.",
+      "no_serial_ports": "No serial ports found. Please connect your WiSafe2 bridge and try again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "WiSafe2 Options",
+        "description": "Configure your WiSafe2 devices."
+      },
+      "menu": {
+        "title": "WiSafe2 Options",
+        "description": "What would you like to do?",
+        "menu_options": {
+          "add_device": "Add a new device",
+          "manage_devices": "Manage existing devices",
+          "done": "Save and exit"
+        }
+      },
+      "add_device": {
+        "title": "Add WiSafe2 Device",
+        "description": "Enter the details for your WiSafe2 alarm device.",
+        "data": {
+          "device_id": "Device ID",
+          "model": "Device Model",
+          "name": "Device Name",
+          "location": "Location"
+        },
+        "data_description": {
+          "device_id": "6-character hexadecimal device ID (e.g., 2d8d01)",
+          "model": "The model type of the alarm",
+          "name": "Friendly name for the device",
+          "location": "Room or area where the device is installed"
+        }
+      },
+      "manage_devices": {
+        "title": "Manage Devices",
+        "description": "Select a device to remove, or leave empty to go back.",
+        "data": {
+          "remove_device": "Remove Device"
+        }
+      }
+    },
+    "error": {
+      "invalid_device_id": "Device ID must be a 6-character hexadecimal string.",
+      "device_already_exists": "A device with this ID has already been added."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "last_message": {
+        "name": "Last Message"
+      },
+      "raw_data": {
+        "name": "Raw Data"
+      },
+      "battery": {
+        "name": "Battery"
+      },
+      "base_status": {
+        "name": "Base Status"
+      },
+      "last_event": {
+        "name": "Last Event"
+      },
+      "test_result": {
+        "name": "Test Result"
+      },
+      "last_seen": {
+        "name": "Last Seen"
+      }
+    },
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      },
+      "problem": {
+        "name": "Problem"
+      },
+      "smoke": {
+        "name": "Smoke"
+      },
+      "carbon_monoxide": {
+        "name": "Carbon Monoxide"
+      }
+    },
+    "button": {
+      "test_co_alarms": {
+        "name": "Test CO Alarms"
+      },
+      "test_smoke_alarms": {
+        "name": "Test Smoke Alarms"
+      },
+      "test_all_alarms": {
+        "name": "Test All Alarms"
+      },
+      "silence_co_alarms": {
+        "name": "Silence CO Alarms"
+      },
+      "silence_smoke_alarms": {
+        "name": "Silence Smoke Alarms"
+      },
+      "check_pairing_status": {
+        "name": "Check Pairing Status"
+      },
+      "start_pairing_mode": {
+        "name": "Start Pairing Mode"
+      }
+    }
+  }
+}
