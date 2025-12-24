@@ -208,59 +208,88 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
             _LOGGER.debug("Invalid JSON: %s", line)
 
     async def _handle_json_message(self, data: dict[str, Any]) -> None:
-        """Handle a parsed JSON message."""
+        """Handle a parsed JSON message from Arduino.
+
+        Arduino JSON formats:
+        - Heartbeat: {"heartBeat":"0"}
+        - Test: {"device":"AD1A05", "model":"0401", "event":"FIRE TEST", "result":"PASS", "base":"ON", "battery":"OK"}
+        - Emergency: {"device":"AD1A05", "event":"FIRE EMERGENCY", "base":"ON"}
+        - Status: {"device":"AD1A05", "model":"0401", "base":"ON", "battery":"OK"}
+        - Missing: {"device":"AD1A05", "event":"MISSING", "base":"MISSING", "battery":"MISSING"}
+        - Silence: {"device":"AD1A05", "event":"SILENCE", "base":"ON"}
+        """
         self._last_message = json.dumps(data)
 
-        # Check for heartbeat
-        if data.get("type") == "heartbeat" or "heartbeat" in data:
+        # Check for heartbeat (Arduino uses "heartBeat" with capital B)
+        if "heartBeat" in data:
             self._last_heartbeat = datetime.now()
             self._bridge_online = True
             self._bridge_device.last_seen = self._last_heartbeat
             self._bridge_device.is_online = True
-            _LOGGER.debug("Heartbeat received")
+            _LOGGER.debug("Heartbeat received: %s", data.get("heartBeat"))
+            self.async_set_updated_data(data)
+            return
 
-        # Check for device messages
-        device_id = data.get("deviceId") or data.get("device_id")
+        # Check for device messages (Arduino uses "device" key with uppercase hex)
+        device_id = data.get("device")
         if device_id:
+            # Normalize device ID to lowercase
+            device_id = device_id.lower()
+
             # Get or create device
             if device_id not in self._devices:
-                model_id = data.get("modelId") or data.get("model_id")
+                model_id = data.get("model")
                 self._devices[device_id] = WiSafe2Device(device_id, model_id)
                 _LOGGER.info("Discovered new WiSafe2 device: %s", device_id)
 
             device = self._devices[device_id]
             device.update_from_message(data)
 
-            # Handle specific message types
-            msg_type = data.get("type") or data.get("message_type")
-            if msg_type:
-                await self._handle_device_event(device, msg_type, data)
+            # Update model if provided
+            if data.get("model") and not device.model_id:
+                device.model_id = data.get("model")
+
+            # Handle event-based messages
+            event = data.get("event", "")
+            if event:
+                await self._handle_device_event(device, event, data)
 
         # Trigger update for listeners
         self.async_set_updated_data(data)
 
     async def _handle_device_event(
-        self, device: WiSafe2Device, msg_type: str, data: dict[str, Any]
+        self, device: WiSafe2Device, event: str, data: dict[str, Any]
     ) -> None:
-        """Handle a specific device event."""
-        if msg_type == "test":
+        """Handle a specific device event.
+
+        Event strings from Arduino:
+        - "FIRE TEST", "CARBON MONOXIDE TEST", "TEST"
+        - "FIRE EMERGENCY", "CARBON MONOXIDE EMERGENCY"
+        - "SILENCE"
+        - "MISSING"
+        """
+        event_upper = event.upper()
+
+        # Test events
+        if "TEST" in event_upper:
             result = data.get("result", "unknown")
-            event_type = data.get("event_type", "unknown")
-            device.last_test_result = f"{event_type}: {result}"
+            device.last_test_result = f"{event}: {result}"
+            device.last_event = event
             _LOGGER.info(
                 "Test result from %s: %s - %s",
                 device.device_id,
-                event_type,
+                event,
                 result,
             )
 
-        elif msg_type == "emergency":
-            event_type = data.get("event_type", "unknown")
-            device.last_event = f"EMERGENCY: {event_type}"
+        # Emergency events
+        elif "EMERGENCY" in event_upper:
+            device.last_event = event
+            event_type = "FIRE" if "FIRE" in event_upper else "CO"
             _LOGGER.warning(
                 "EMERGENCY from %s: %s",
                 device.device_id,
-                event_type,
+                event,
             )
             # Fire an event for automations
             self.hass.bus.async_fire(
@@ -268,24 +297,20 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                 {
                     "device_id": device.device_id,
                     "event_type": event_type,
+                    "event": event,
                     "device_name": device.name,
                     "location": device.location,
                 },
             )
 
-        elif msg_type == "status":
-            battery = data.get("battery", "unknown")
-            base = data.get("base", "unknown")
-            device.battery_status = battery
-            device.base_status = base
-            _LOGGER.debug(
-                "Status from %s: battery=%s, base=%s",
-                device.device_id,
-                battery,
-                base,
-            )
+        # Silence events
+        elif "SILENCE" in event_upper:
+            device.last_event = event
+            _LOGGER.info("Silence from %s", device.device_id)
 
-        elif msg_type == "missing":
+        # Missing device events
+        elif "MISSING" in event_upper:
+            device.last_event = event
             device.is_online = False
             _LOGGER.warning("Device %s reported as missing", device.device_id)
             self.hass.bus.async_fire(
@@ -295,6 +320,11 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                     "device_name": device.name,
                 },
             )
+
+        else:
+            # Unknown event type, just store it
+            device.last_event = event
+            _LOGGER.debug("Unknown event from %s: %s", device.device_id, event)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the bridge."""

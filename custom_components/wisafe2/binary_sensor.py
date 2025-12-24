@@ -191,17 +191,18 @@ class WiSafe2DeviceSmokeSensor(WiSafe2DeviceBinarySensorBase):
         """Initialize the sensor."""
         super().__init__(coordinator, config_entry, device)
         self._attr_unique_id = f"{device.device_id}_smoke"
-        self._is_alarming = False
-
-        # Listen for emergency events
-        self.hass = coordinator.hass
 
     @property
     def is_on(self) -> bool:
-        """Return true if smoke/fire alarm is active."""
+        """Return true if smoke/fire alarm is active.
+
+        Arduino event: "FIRE EMERGENCY"
+        """
         event = self._device.last_event
-        if event and "EMERGENCY" in event and ("FIRE" in event.upper() or "SMOKE" in event.upper()):
-            return True
+        if event:
+            event_upper = event.upper()
+            if "FIRE EMERGENCY" in event_upper:
+                return True
         return False
 
 
@@ -223,8 +224,13 @@ class WiSafe2DeviceCOSensor(WiSafe2DeviceBinarySensorBase):
 
     @property
     def is_on(self) -> bool:
-        """Return true if CO alarm is active."""
+        """Return true if CO alarm is active.
+
+        Arduino event: "CARBON MONOXIDE EMERGENCY"
+        """
         event = self._device.last_event
-        if event and "EMERGENCY" in event and "CO" in event.upper():
-            return True
+        if event:
+            event_upper = event.upper()
+            if "CARBON MONOXIDE EMERGENCY" in event_upper:
+                return True
         return False
