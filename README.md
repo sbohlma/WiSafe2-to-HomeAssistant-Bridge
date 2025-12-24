@@ -1,10 +1,122 @@
-# WiSafe2-to-HA Bridge readme
+# WiSafe2-to-HA Bridge
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![GitHub Release](https://img.shields.io/github/release/C19HOP/WiSafe2-to-HomeAssistant-Bridge.svg)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/releases)
+
+A Home Assistant integration for FireAngel WiSafe2 fire and CO alarms via a custom Arduino bridge.
 
 ## Quick Links
 - [Arduino Sketch](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
 - [Enclosure](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
 - [PCB (easyEDA)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
-- [HomeAssistant Configuration](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA)
+- [HomeAssistant Configuration (Legacy YAML)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA)
+
+---
+
+## Installation (HACS - Recommended)
+
+### Prerequisites
+Before installing the integration, you need to build the hardware bridge. See the [Hardware Setup](#the-wisafe2-to-ha-bridge) section below.
+
+### Install via HACS
+
+1. Open HACS in Home Assistant
+2. Click the three dots in the top right corner
+3. Select "Custom repositories"
+4. Add this repository URL: `https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge`
+5. Select "Integration" as the category
+6. Click "Add"
+7. Search for "WiSafe2" in HACS and install it
+8. Restart Home Assistant
+
+### Manual Installation
+
+1. Download the latest release from [GitHub Releases](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/releases)
+2. Copy the `custom_components/wisafe2` folder to your Home Assistant `config/custom_components/` directory
+3. Restart Home Assistant
+
+### Configuration
+
+1. Go to **Settings** → **Devices & Services**
+2. Click **+ Add Integration**
+3. Search for "WiSafe2 FireAngel Bridge"
+4. Select your serial port (e.g., `/dev/ttyUSB0`)
+5. Add your alarm devices with their 6-character hex IDs
+6. Complete the setup
+
+### Features
+
+The integration provides:
+
+**Sensors:**
+- Bridge status (Online/Offline)
+- Last message received
+- Per-device battery status
+- Per-device base status (attached/removed)
+- Per-device last event
+- Per-device test results
+- Per-device last seen timestamp
+
+**Binary Sensors:**
+- Bridge connectivity
+- Per-device connectivity
+- Per-device problem indicator (low battery, off base, failed test)
+- Per-device smoke/fire alarm status
+- Per-device CO alarm status
+
+**Buttons:**
+- Test CO Alarms
+- Test Smoke Alarms
+- Test All Alarms
+- Silence CO Alarms
+- Silence Smoke Alarms
+- Check Pairing Status
+- Start Pairing Mode
+
+### Events
+
+The integration fires Home Assistant events for automations:
+
+- `wisafe2_emergency` - Fired when an emergency is detected
+  - `device_id`: The alarm's hex ID
+  - `event_type`: "FIRE" or "CO"
+  - `device_name`: Friendly name of the device
+  - `location`: Room/location of the device
+
+- `wisafe2_device_missing` - Fired when a device is reported missing
+  - `device_id`: The alarm's hex ID
+  - `device_name`: Friendly name of the device
+
+### Example Automation
+
+```yaml
+automation:
+  - alias: "Fire Emergency Alert"
+    trigger:
+      - platform: event
+        event_type: wisafe2_emergency
+    condition:
+      - condition: template
+        value_template: "{{ trigger.event.data.event_type == 'FIRE' }}"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "FIRE EMERGENCY!"
+          message: "Fire detected by {{ trigger.event.data.device_name }} in {{ trigger.event.data.location }}"
+          data:
+            push:
+              sound:
+                critical: 1
+                volume: 1.0
+```
+
+---
+
+## Legacy YAML Configuration
+
+If you prefer the original YAML-based setup (without the GUI integration), see the [HA folder](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA) for configuration examples.
+
+---
 
 ## Project Background
 Like some others, I have some expired Google Nest Protects, which I wanted to replace with a cheaper / more-scalable alternative. But above all, I wanted to realise a trustworthy fire/CO alarm system, which integrates with HomeAssistant.
