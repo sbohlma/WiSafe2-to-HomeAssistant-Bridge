@@ -49,7 +49,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             device_id=device_config["device_id"],
             model_id=device_config.get("model"),
             name=device_config.get("name"),
-            location=device_config.get("location"),
         )
 
     # Store coordinator

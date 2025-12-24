@@ -8,7 +8,11 @@ import serial
 import serial.tools.list_ports
 import voluptuous as vol
 
-from homeassistant import config_entries
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    OptionsFlow,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
@@ -45,7 +49,7 @@ async def validate_serial_port(hass: HomeAssistant, port: str, baud_rate: int) -
         raise CannotConnect from err
 
 
-class WiSafe2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class WiSafe2ConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for WiSafe2 FireAngel Bridge."""
 
     VERSION = 1
@@ -206,26 +210,27 @@ class WiSafe2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
+        config_entry: ConfigEntry,
     ) -> WiSafe2OptionsFlow:
         """Get the options flow handler."""
-        return WiSafe2OptionsFlow(config_entry)
+        return WiSafe2OptionsFlow()
 
 
-class WiSafe2OptionsFlow(config_entries.OptionsFlow):
+class WiSafe2OptionsFlow(OptionsFlow):
     """Handle options flow for WiSafe2."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-        self._devices: list[dict[str, Any]] = list(
-            config_entry.options.get("devices", [])
-        )
+    _devices: list[dict[str, Any]] | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage the options - main menu."""
+        # Initialize devices from config entry on first call
+        if self._devices is None:
+            self._devices = list(
+                self.config_entry.options.get("devices", [])
+            )
+
         errors: dict[str, str] = {}
 
         if user_input is not None:

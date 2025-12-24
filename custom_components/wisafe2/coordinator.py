@@ -409,20 +409,16 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
         device_id: str,
         model_id: str | None = None,
         name: str | None = None,
-        location: str | None = None,
     ) -> WiSafe2Device:
         """Manually add a device."""
         if device_id not in self._devices:
             device = WiSafe2Device(device_id, model_id)
             device.name = name
-            device.location = location
             self._devices[device_id] = device
         else:
             device = self._devices[device_id]
             if name:
                 device.name = name
-            if location:
-                device.location = location
             if model_id:
                 device.model_id = model_id
         return device
