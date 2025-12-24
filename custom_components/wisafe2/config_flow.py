@@ -170,7 +170,6 @@ class WiSafe2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "device_id": device_id,
                     "model": user_input.get("model"),
                     "name": user_input.get("name"),
-                    "location": user_input.get("location"),
                 })
                 return await self.async_step_devices()
 
@@ -197,9 +196,6 @@ class WiSafe2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         )
                     ),
                     vol.Optional("name"): selector.TextSelector(
-                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-                    ),
-                    vol.Optional("location"): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),
                 }
@@ -293,7 +289,6 @@ class WiSafe2OptionsFlow(config_entries.OptionsFlow):
                     "device_id": device_id,
                     "model": user_input.get("model"),
                     "name": user_input.get("name"),
-                    "location": user_input.get("location"),
                 })
                 return await self.async_step_init()
 
@@ -319,9 +314,6 @@ class WiSafe2OptionsFlow(config_entries.OptionsFlow):
                         )
                     ),
                     vol.Optional("name"): selector.TextSelector(
-                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-                    ),
-                    vol.Optional("location"): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),
                 }

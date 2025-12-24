@@ -26,14 +26,12 @@
         "data": {
           "device_id": "Device ID",
           "model": "Device Model",
-          "name": "Device Name",
-          "location": "Location"
+          "name": "Device Name"
         },
         "data_description": {
           "device_id": "6-character hexadecimal device ID (e.g., 2d8d01)",
           "model": "The model type of the alarm",
-          "name": "Friendly name for the device",
-          "location": "Room or area where the device is installed"
+          "name": "Friendly name for the device"
         }
       }
     },
@@ -63,14 +61,12 @@
         "data": {
           "device_id": "Device ID",
           "model": "Device Model",
-          "name": "Device Name",
-          "location": "Location"
+          "name": "Device Name"
         },
         "data_description": {
           "device_id": "6-character hexadecimal device ID (e.g., 2d8d01)",
           "model": "The model type of the alarm",
-          "name": "Friendly name for the device",
-          "location": "Room or area where the device is installed"
+          "name": "Friendly name for the device"
         }
       },
       "remove_device": {
