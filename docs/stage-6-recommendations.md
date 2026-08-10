@@ -31,11 +31,12 @@ Do not add a new RF reset sequence without captured evidence.
 
 ### Build verification
 
-Add CI that compiles `Arduino/FireAngelNano.ino` for
+Add CI that compiles both sketches for
 `arduino:avr:nano:cpu=atmega328old` with warnings enabled and reports flash and
-static RAM use. Because the sketch directory name differs from the main `.ino`
-name, the job should copy it into a temporary `FireAngelNano/FireAngelNano.ino`
-directory before invoking `arduino-cli`.
+static RAM use. Pass `--libraries libraries` so both builds use the shared
+`WiSafeRadioCore` library. Because the legacy sketch directory name differs from
+the main `.ino` name, copy it into a temporary matching directory before
+invoking `arduino-cli`.
 
 Set a conservative static-RAM budget (for example, fail above 75%) so future
 features leave stack space. Treat sketch warnings as actionable while filtering

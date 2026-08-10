@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Reviewer hardening
+
+- Extract duplicated SPI, transaction, watchdog-wait, diagnostic, and decoder
+  logic into the shared `WiSafeRadioCore` Arduino library.
+- Prevent legacy init retry dots from contaminating direct/raw output.
+- Drain and reject serial commands as busy during pairing instead of allowing
+  the UART ring buffer to overflow silently.
+- Document the deliberately bounded V2 command parser, remove the unused SPI
+  variable, and reuse the common hexadecimal printer.
+
 ### Clarify bridge and detector test semantics
 
 - Preserve the legacy bridge-device synthetic `PASS` as a record that the

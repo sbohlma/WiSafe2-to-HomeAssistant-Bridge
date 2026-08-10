@@ -153,13 +153,17 @@ clear “waiting for firmware identification” error. Do not guess legacy.
 
 Pairing returns `accepted` first and later `paired`/`unpaired` with the same ID.
 A button press may complete on `accepted`; retain the later result as diagnostic
-state. `pairing_state` completes on `paired`/`unpaired`.
+state. `pairing_state` completes on `paired`/`unpaired`. Serialize management
+commands while pairing is active. If a V2 command is nevertheless sent, handle
+the correlated `busy` error normally; legacy firmware returns `CMD BUSY`.
 
 ## Heartbeat, availability, and diagnostics
 
-Treat legacy `heartBeat` and V2 `type: heartbeat` as activity. Preserve the
-serial connection sensor. If heartbeat age is used for availability, allow more
-than the 25-second interval.
+Treat every valid recognized message as activity, including legacy `heartBeat`
+and V2 `type: heartbeat`. The firmware heartbeat is an idle keepalive and may be
+postponed by events or commands. Preserve the serial connection sensor and base
+availability on `last_activity`, using a timeout comfortably above the
+25-second quiet interval (approximately 60–75 seconds).
 
 Extend `diagnostics.py` with detected mode, versions, radio state, last
 heartbeat, last error/result, and firmware counters. Optionally expose firmware
@@ -199,6 +203,7 @@ Add mocked serial tests for:
 - exact legacy bytes and compact V2 JSON/LF bytes;
 - command buttons unavailable while mode is unknown;
 - concurrent V2 correlation with interleaved alarm events;
+- pairing-time commands receiving a correlated `busy` error without UART loss;
 - command acceptance not changing `last_test_pass`;
 - original/improved legacy bridge-ID `PASS` being retained as a bridge action
   but ignored as a detector result;

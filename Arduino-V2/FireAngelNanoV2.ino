@@ -1,73 +1,14 @@
-#include<SPI.h>
-#include <avr/wdt.h>
-//#include <ArduinoJson.h>
+#include <WiSafeRadioCore.h>
 
-#define IRQline 9
-#define directModePin 2
-
-volatile boolean SPIreceived;
-volatile byte Slavereceived, Slavesend;
-int IRQState = 1;
-int IRQLastState = 1;
-int sendWait = 0;
-const byte SPI_BUFFER_SIZE = 25;
 const byte SERIAL_BUFFER_SIZE = 79;
 char serialBuffer[SERIAL_BUFFER_SIZE + 1];
-byte spiBuffer[SPI_BUFFER_SIZE];
 byte serialBufferIndex = 0;
-byte spiBufferIndex = 0;
 boolean serialFrameOverflow = false;
-boolean radioReceiveBufferReady = false;
-boolean spiFrameOverflow = false;
-unsigned int spiOverflowCount = 0;
-unsigned int malformedFrameCount = 0;
-unsigned int incompleteFrameTimeoutCount = 0;
-unsigned int commandTimeoutCount = 0;
-unsigned int commandRetryCount = 0;
-unsigned int unknownFrameCount = 0;
-unsigned int radioReinitializationCount = 0;
-byte lastUnknownFrameType = 0;
-unsigned long spiFrameStartedAt = 0;
-boolean directMode = false;
-boolean radioReady = false;
+boolean pairingInProgress = false;
 boolean activeCommandHasId = false;
 unsigned int activeCommandId = 0;
-int maxInitAttempts = 50;                        //MAX number of attempts to Init Radio
-unsigned int heartBeatInterval = 25000;           // Heartbeat interval (in milliseconds)
-unsigned long lastHeartBeat = 0;
-const unsigned long SPI_FRAME_TIMEOUT_MS = 100;
-const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 150;
 const char FIRMWARE_VERSION[] = "2.0.0";
 const byte SERIAL_PROTOCOL_VERSION = 2;
-
-enum RadioEventKind : byte {
-  RADIO_EVENT_UNKNOWN,
-  RADIO_EVENT_TEST,
-  RADIO_EVENT_STATUS,
-  RADIO_EVENT_EMERGENCY,
-  RADIO_EVENT_SILENCE,
-  RADIO_EVENT_MISSING
-};
-
-enum AlarmKind : byte {
-  ALARM_UNSPECIFIED,
-  ALARM_FIRE,
-  ALARM_CARBON_MONOXIDE
-};
-
-struct RadioEvent {
-  RadioEventKind kind;
-  AlarmKind alarm;
-  byte device[3];
-  byte model[2];
-  byte rawMessageType;
-  byte rawEventCode;
-  byte rawStatus;
-  boolean testPassed;
-  boolean baseOn;
-  boolean batteryLow;
-};
-
 
 //------------------------EMBEDDED DEVICE INFO GOES HERE-------------------------------
 // When sending data to other alarms, this is the DeviceID and ModelID which other
@@ -128,14 +69,6 @@ void setup()
 
 
 
-ISR (SPI_STC_vect)
-{
-  Slavereceived = SPDR;
-  SPIreceived = true;
-}
-
-
-
 boolean initRadio()
 {
 
@@ -154,90 +87,6 @@ boolean initRadio()
   return (true);
 }
 
-
-
-void checkIfSPIbufferIsStagnant()
-{
-  if ((spiBufferIndex > 0 || spiFrameOverflow) &&
-      (millis() - spiFrameStartedAt >= SPI_FRAME_TIMEOUT_MS)) {
-    incompleteFrameTimeoutCount++;
-    flushSPIbuffer();
-  }
-}
-
-
-
-void flushSPIbuffer()
-{
-  spiBufferIndex = 0;
-  memset(spiBuffer, 0, sizeof(spiBuffer));
-  radioReceiveBufferReady = false;
-  spiFrameOverflow = false;
-}
-
-
-boolean responseIs(byte firstByte, byte expectedLength)
-{
-  return (radioReceiveBufferReady && spiBufferIndex == expectedLength &&
-          spiBuffer[0] == firstByte && spiBuffer[expectedLength - 1] == 0x7E);
-}
-
-
-
-void serviceRadioFrame()
-{
-  ReadByteFromRadio();
-  checkIfSPIbufferIsStagnant();
-  if (!radioReceiveBufferReady) return;
-  if (directMode) Serial.write(spiBuffer, spiBufferIndex);
-  else processRadioResponse();
-  flushSPIbuffer();
-}
-
-
-void cooperativeWait(unsigned long durationMs)
-{
-  unsigned long startedAt = millis();
-  while (millis() - startedAt < durationMs) {
-    serviceRadioFrame();
-    processHeartBeat();
-    wdt_reset();
-  }
-}
-
-
-void writeCommand(const byte cmd[], byte cmdSize)
-{
-  for (byte i = 0; i < cmdSize; i++) WriteByteToRadio(cmd[i]);
-}
-
-
-boolean sendAndExpect(const byte cmd[], byte cmdSize, byte responseByte,
-                      byte responseLength, byte maxAttempts)
-{
-  for (byte attempt = 0; attempt < maxAttempts; attempt++) {
-    flushSPIbuffer();
-    writeCommand(cmd, cmdSize);
-    unsigned long startedAt = millis();
-    while (millis() - startedAt < COMMAND_RESPONSE_TIMEOUT_MS) {
-      ReadByteFromRadio();
-      checkIfSPIbufferIsStagnant();
-      if (radioReceiveBufferReady) {
-        if (responseIs(responseByte, responseLength)) return true;
-        if (directMode) Serial.write(spiBuffer, spiBufferIndex);
-        else processRadioResponse();
-        flushSPIbuffer();
-      }
-      wdt_reset();
-    }
-    commandTimeoutCount++;
-    if (attempt + 1 < maxAttempts) {
-      commandRetryCount++;
-      cooperativeWait(500);
-    }
-  }
-  return false;
-}
 
 
 const __FlashStringHelper *commandName(byte command)
@@ -279,6 +128,15 @@ void printV2Error(const __FlashStringHelper *code)
 {
   printV2Prefix(F("error"));
   if (activeCommandHasId) { Serial.print(F(",\"id\":")); Serial.print(activeCommandId); }
+  Serial.print(F(",\"code\":\"")); Serial.print(code); Serial.println(F("\"}"));
+}
+
+
+void printV2ErrorForRequest(const __FlashStringHelper *code, boolean requestHasId,
+                            unsigned int requestId)
+{
+  printV2Prefix(F("error"));
+  if (requestHasId) { Serial.print(F(",\"id\":")); Serial.print(requestId); }
   Serial.print(F(",\"code\":\"")); Serial.print(code); Serial.println(F("\"}"));
 }
 
@@ -377,7 +235,9 @@ void SendTemplateToRadio(byte CMD)
     flushSPIbuffer();
     writeCommand(pairingBroadcast, sizeof(pairingBroadcast));
     printCommandResult(CMD, F("accepted"));
+    pairingInProgress = true;
     for (byte i = 0; i <= 20; i++) cooperativeWait(1000);
+    pairingInProgress = false;
     if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 1)) {
       printV2Error(F("pairing_state_timeout"));
       return;
@@ -390,6 +250,8 @@ void SendTemplateToRadio(byte CMD)
 
 boolean parseRequestId(const char *json, unsigned int &requestId)
 {
+  // Deliberately parse only HA's bounded, fixed command schema. This avoids a
+  // dynamic JSON dependency on the AVR; it is not a general-purpose parser.
   const char *position = strstr(json, "\"id\"");
   if (!position) return false;
   position = strchr(position, ':');
@@ -409,6 +271,7 @@ boolean parseRequestId(const char *json, unsigned int &requestId)
 
 char *parseCommandName(char *json)
 {
+  // See parseRequestId(): keys are found by name in trusted command objects.
   char *position = strstr(json, "\"command\"");
   if (!position) return NULL;
   position = strchr(position, ':');
@@ -450,7 +313,13 @@ void handleV2Command(char *json)
 void completeSerialFrame()
 {
   serialBuffer[serialBufferIndex] = '\0';
-  if (directMode) {
+  if (!directMode && pairingInProgress) {
+    boolean idPresent = strstr(serialBuffer, "\"id\"") != NULL;
+    unsigned int requestId = 0;
+    boolean requestHasId = parseRequestId(serialBuffer, requestId);
+    if (idPresent && !requestHasId) printV2ErrorForRequest(F("invalid_id"), false, 0);
+    else printV2ErrorForRequest(F("busy"), requestHasId, requestId);
+  } else if (directMode) {
     writeCommand((byte *)serialBuffer, serialBufferIndex);
     WriteByteToRadio(0x7E);
   } else {
@@ -484,167 +353,6 @@ void ReadByteFromSerial()
   }
 }
 
-
-
-void ReadByteFromRadio()
-{
-  IRQState = digitalRead(SS);
-  if (IRQState != IRQLastState)
-  {
-    if (IRQState == HIGH)
-    {
-      digitalWrite(IRQline, HIGH);
-      delayMicroseconds(8);
-      digitalWrite(IRQline, LOW);
-    }
-    IRQLastState = IRQState;
-    if (SPIreceived == true)
-    {
-      if (spiFrameOverflow) {
-        if (Slavereceived == 0x7E) flushSPIbuffer();
-      } else if (spiBufferIndex < SPI_BUFFER_SIZE) {
-        if (spiBufferIndex == 0) spiFrameStartedAt = millis();
-        spiBuffer[spiBufferIndex++] = Slavereceived;
-        if (Slavereceived == 0x7E) radioReceiveBufferReady = true;
-      } else {
-        spiOverflowCount++;
-        spiFrameOverflow = true;
-        spiFrameStartedAt = millis();
-        spiBufferIndex = 0;
-        radioReceiveBufferReady = false;
-      }
-    }
-    (SPDR = 0);
-    (SPIreceived = false);
-  }
-}
-
-
-
-void WriteByteToRadio(byte byteToSend)
-{
-  digitalWrite(IRQline, HIGH);                    //set IRQ high
-  sendWait = 0;
-  while (digitalRead(SS) == HIGH)
-  {
-    delayMicroseconds(5);                         //wait for CS to go low
-    sendWait++;
-    if (sendWait >= 1000)
-    { //timeout waiting for CS
-      break;
-    }
-  }
-  sendWait = 0;
-  SPDR = byteToSend;                              //put data from Slave to Master on to SPI
-  sendWait = 0;
-  while (digitalRead(SS) == LOW)
-  {
-    delayMicroseconds(5);                         //wait for CS to return high
-    sendWait++;
-    if (sendWait >= 1000)
-    { //timeout waiting for CS
-      break;
-    }
-  }
-  digitalWrite(IRQline, LOW);                     //set IRQ low
-  (SPDR = 0);
-  (SPIreceived = false);
-}
-
-
-
-boolean requireFrameLength(byte minimumLength)
-{
-  if (spiBufferIndex >= minimumLength) return true;
-  malformedFrameCount++;
-  return false;
-}
-
-
-AlarmKind decodeAlarm(byte value)
-{
-  if (value == 0x41) return ALARM_CARBON_MONOXIDE;
-  // Captures establish both as fire-family values, but do not establish a
-  // defensible smoke-versus-heat distinction.
-  if (value == 0x81 || value == 0x82) return ALARM_FIRE;
-  return ALARM_UNSPECIFIED;
-}
-
-
-boolean decodeRadioEvent(RadioEvent &event)
-{
-  memset(&event, 0, sizeof(event));
-  if (!radioReceiveBufferReady || spiBufferIndex < 2 || spiBuffer[spiBufferIndex - 1] != 0x7E) {
-    malformedFrameCount++;
-    return false;
-  }
-  event.rawMessageType = spiBuffer[0];
-  switch (event.rawMessageType) {
-    case 0x70:
-      // Received from a detector when its physical test button is pressed.
-      if (!requireFrameLength(9)) return false;
-      event.kind = RADIO_EVENT_TEST;
-      memcpy(event.device, &spiBuffer[1], 3);
-      memcpy(event.model, &spiBuffer[6], 2);
-      event.rawEventCode = spiBuffer[4];
-      event.rawStatus = spiBuffer[5];
-      event.alarm = decodeAlarm(event.rawEventCode);
-      event.testPassed = event.rawStatus == 0x01;
-      event.baseOn = true;
-      event.batteryLow = false;
-      return true;
-    case 0x71:
-      if (!requireFrameLength(8)) return false;
-      event.kind = RADIO_EVENT_STATUS;
-      memcpy(event.device, &spiBuffer[1], 3);
-      memcpy(event.model, &spiBuffer[4], 2);
-      event.rawStatus = spiBuffer[6];
-      event.baseOn = event.rawStatus & 0x04;
-      event.batteryLow = event.rawStatus & 0x42;
-      return true;
-    case 0x50:
-      if (!requireFrameLength(7)) return false;
-      event.kind = RADIO_EVENT_EMERGENCY;
-      memcpy(event.device, &spiBuffer[1], 3);
-      event.rawEventCode = spiBuffer[4];
-      event.rawStatus = spiBuffer[5];
-      event.alarm = decodeAlarm(event.rawEventCode);
-      event.baseOn = true;
-      return true;
-    case 0x61:
-      if (!requireFrameLength(7)) return false;
-      event.kind = RADIO_EVENT_SILENCE;
-      memcpy(event.device, &spiBuffer[1], 3);
-      event.rawEventCode = spiBuffer[4];
-      event.rawStatus = spiBuffer[5];
-      event.baseOn = true;
-      return true;
-    case 0xD2:
-      if (!requireFrameLength(10)) return false;
-      event.kind = RADIO_EVENT_MISSING;
-      memcpy(event.device, &spiBuffer[6], 3);
-      return true;
-    default:
-      lastUnknownFrameType = event.rawMessageType;
-      unknownFrameCount++;
-      return false;
-  }
-}
-
-
-void printHexByte(byte value)
-{
-  if (value <= 0x0F) Serial.print('0');
-  Serial.print(value, HEX);
-}
-
-
-void printDevice(const byte device[3])
-{
-  printHexByte(device[0]);
-  printHexByte(device[1]);
-  printHexByte(device[2]);
-}
 
 
 void emitV2Event(const RadioEvent &event)
@@ -704,6 +412,12 @@ void processHeartBeat()
    }
 }
 
+
+
+void serviceSerialInputDuringWait()
+{
+  if (pairingInProgress) ReadByteFromSerial();
+}
 
 
 void loop()

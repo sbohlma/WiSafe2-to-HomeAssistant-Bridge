@@ -53,7 +53,10 @@ not quoted strings.
 
 ## Heartbeat and status
 
-Heartbeat interval is 25 seconds:
+The heartbeat is an idle keepalive: it is emitted after approximately 25
+seconds without other radio/management activity. Any valid message is therefore
+evidence of bridge activity; hosts should not require a heartbeat while events
+or command results are flowing.
 
 ```json
 {"type":"heartbeat","uptime":123456,"radio":"ready"}
@@ -147,6 +150,11 @@ the pairing window by `paired` or `unpaired`; it may instead return
 `already_paired` or `timeout`. Unsolicited events can appear between a command
 and its result and must be processed normally.
 
+Only one management command may run at a time. During the approximately
+21-second pairing window, the firmware continues processing radio events but
+rejects additional serial commands with `code: busy`. Hosts should serialize
+commands and wait for pairing to finish.
+
 ## Errors
 
 ```json
@@ -154,7 +162,7 @@ and its result and must be processed normally.
 {"type":"error","code":"serial_frame_overflow"}
 ```
 
-Defined codes are `malformed_command`, `invalid_id`, `unknown_command`,
+Defined codes are `malformed_command`, `invalid_id`, `unknown_command`, `busy`,
 `serial_frame_overflow`, `pairing_state_timeout`, and `radio_init_failed`.
 Malformed input is discarded at its LF boundary so the next line can
 resynchronize.

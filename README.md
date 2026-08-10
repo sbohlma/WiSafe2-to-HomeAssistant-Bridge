@@ -192,11 +192,15 @@ the other protocol at runtime. See
 [`docs/firmware-variants.md`](docs/firmware-variants.md) for the compatibility
 details. You shouldn't need to change the hardware or pin assignments.
 
+Both sketches require the repository's `libraries/WiSafeRadioCore` Arduino
+library. Copy it into your Arduino sketchbook's `libraries` directory before
+building in the IDE, or pass the repository `libraries` path to `arduino-cli`.
+
 Although there are some variables declared for the 'EMBEDDED DEVICE ID' and 'MODEL', which you can change if you like. Basically, the radio thinks it's connected to an alarm. The parameters we set here define the type of alarm that the Nano will simulate.
 This is used when we initiate a test from HA, or when the alarms are silenced.
 The information here just needs to be unique on your network. Chances are you can just leave it all alone.
 
-The only library dependency is the SPI library, which should be installed into the Arduino IDE by default.
+The remaining dependency is Arduino's SPI library, which is installed by default.
 If you encounter any trouble uploading the sketch, try setting the processor to "ATmega328P (old bootloader)"; I found this is nearly always required if using an Arduino Nano 'compatible'.
 
 ![Enclosure-Closed](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/Nano%20bootloader.png)

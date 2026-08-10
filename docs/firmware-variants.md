@@ -69,7 +69,20 @@ Both retain the existing pins, SPI-slave role, 115200 baud serial link, embedded
 bridge identity, genuine donor radio, RF templates, and supported alarm events.
 No PCB or wiring change is required when moving between images.
 
+The byte acquisition, bounded transaction, watchdog-safe wait, diagnostics, and
+frame decoder are shared by both sketches through the local
+`libraries/WiSafeRadioCore` Arduino library. Radio/SPI fixes belong there rather
+than being copied into each protocol frontend.
+
 ## Arduino CLI builds
+
+Install or copy `libraries/WiSafeRadioCore` into the Arduino sketchbook's
+`libraries` directory when building in the Arduino IDE. With Arduino CLI, pass
+the repository library directory explicitly:
+
+```text
+--libraries /path/to/WiSafe2-to-HomeAssistant-Bridge/libraries
+```
 
 The Arduino CLI requires the sketch directory and main `.ino` basename to
 match. The repository paths already satisfy that rule for the V2 sketch. For
