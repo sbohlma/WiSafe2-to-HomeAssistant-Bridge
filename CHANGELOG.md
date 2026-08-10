@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Stage 5 — Home Assistant migration point
+
+- Document the integration changes needed for negotiation, typed messages,
+  command correlation, diagnostics, and three-way firmware compatibility.
+- Make no changes to the separate Home Assistant integration repository.
+
 ### Stage 4 — serial protocol v2 with legacy compatibility
 
 - Add opt-in serial protocol v2 negotiation while retaining legacy mode after every reset.
