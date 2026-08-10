@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-### Correct detector test semantics
+### Clarify bridge and detector test semantics
 
-- Stop the improved legacy firmware from emitting a synthetic detector `PASS`
-  after a bridge-originated sound command.
+- Preserve the legacy bridge-device synthetic `PASS` as a record that the
+  bridge initiated a sound command, not as a response from a detector.
 - Rename V2 outgoing commands to `sound_fire`, `sound_co`, and
   `sound_combined` so they cannot be mistaken for detector verification.
 - Document that genuine test events come from separately pressing each

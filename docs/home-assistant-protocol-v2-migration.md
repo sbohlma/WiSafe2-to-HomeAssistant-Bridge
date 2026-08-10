@@ -110,11 +110,12 @@ Only a V2 `type: event` test with `result: PASS` may update
 `last_test_pass`. A `command_result` of `accepted` means only that the bridge
 radio accepted/transmitted a sound request. Remote detectors do not reply.
 
-For legacy input, update `last_test_pass` only for a detector-originated test
-event. The original C19HOP firmware emits a synthetic `PASS` under the
-configured bridge device ID after a host command; ignore that message as a
-detector result (it may be retained as a bridge diagnostic). The improved
-legacy firmware no longer emits it.
+For legacy input, update detector `last_test_pass` only for a
+detector-originated test event. Both the original C19HOP firmware and the
+improved legacy firmware emit a synthetic `PASS` under the configured bridge
+device ID after a host command. Preserve it as the bridge's initiation/action
+record, but never treat it as a detector response or physical detector result.
+It is semantically equivalent to V2 `command_result: accepted`.
 
 Each detector must be tested by pressing its own physical test button. The
 resulting WiSafe2 event identifies that detector and can update its timestamp.
@@ -199,8 +200,8 @@ Add mocked serial tests for:
 - command buttons unavailable while mode is unknown;
 - concurrent V2 correlation with interleaved alarm events;
 - command acceptance not changing `last_test_pass`;
-- original-firmware synthetic bridge-ID `PASS` being ignored as a detector
-  result;
+- original/improved legacy bridge-ID `PASS` being retained as a bridge action
+  but ignored as a detector result;
 - genuine received test `PASS` changing `last_test_pass`;
 - separate physical-button events updating only their originating detector;
 - unchanged discovery, persistence, partial updates, and legacy behavior.

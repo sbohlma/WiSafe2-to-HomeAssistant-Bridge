@@ -272,6 +272,13 @@ void SendTemplateToRadio(byte CMD)
     flushSPIbuffer();
     writeCommand(transmit, sizeof(transmit));
     Serial.println(F("CMD OK"));
+    cooperativeWait(1000);
+    // Preserve the legacy bridge-device PASS as an initiation record. It is
+    // synthetic and is not a response from any remote detector.
+    Serial.print(F("{\"device\":\"")); printBridgeDevice();
+    if (CMD == 0x31) Serial.println(F("\", \"event\":\"CARBON MONOXIDE TEST\", \"result\":\"PASS\"}"));
+    else if (CMD == 0x32) Serial.println(F("\", \"event\":\"FIRE TEST\", \"result\":\"PASS\"}"));
+    else Serial.println(F("\", \"event\":\"TEST\", \"result\":\"PASS\"}"));
     return;
   }
 

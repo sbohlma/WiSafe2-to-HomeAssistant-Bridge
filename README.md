@@ -113,6 +113,11 @@ detector individually. A genuine detector test record is received only when
 that detector's own test button is pressed; each detector must therefore be
 tested separately.
 
+For compatibility, the legacy firmware emits a synthetic `PASS` against the
+bridge device ID after initiating a sound command. This records the bridge
+action only; it is not a response or test result from any detector. V2 reports
+the same action as a structured `command_result` with `result: accepted`.
+
 And I can perform some basic configuration, like check and enable network pairing mode.
 The bridge also produces a heart-beat, so we can be confident that it is communicating with HA.
 

@@ -136,6 +136,11 @@ detector and collects results.
 Only an independently received `type: event` test message caused by pressing a
 detector's own button is recorded as that detector's test report.
 
+In the legacy-only firmware, the equivalent initiation record is a synthetic
+test `PASS` using the configured bridge device ID. Protocol V2 represents that
+bridge action as `command_result: accepted` instead, avoiding confusion with a
+received detector event.
+
 General commands return `accepted` or `timeout`. `pairing_state` returns
 `paired`, `unpaired`, or `timeout`. `pairing` returns `accepted`, followed after
 the pairing window by `paired` or `unpaired`; it may instead return

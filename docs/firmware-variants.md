@@ -9,9 +9,8 @@ Path: `Arduino/FireAngelNano.ino`
 
 This is based on the Stage 3 firmware: memory-safe reception, responsive management
 operations, watchdog recovery, internal protocol modelling, and diagnostics,
-while preserving the original serial framing and commands. One misleading
-legacy behavior is deliberately corrected: a bridge-originated sound command
-no longer creates a synthetic detector `PASS` event.
+while preserving the original serial framing, commands, and bridge-device
+initiation record.
 
 Choose it when using the original Home Assistant serial configuration or an
 integration version that only understands the C19HOP protocol. It retains:
@@ -20,8 +19,8 @@ integration version that only understands the C19HOP protocol. It retains:
 - legacy JSON event fields and strings;
 - cycling legacy heartbeat;
 - textual command/pairing responses;
-- `CMD OK`/`CMD FAIL` reporting for bridge-originated sound commands, without a
-  synthetic detector result;
+- `CMD OK`/`CMD FAIL` reporting and the historical synthetic bridge-device
+  `PASS` after a bridge-originated sound command;
 - direct/raw jumper mode.
 
 ## V2-only firmware
@@ -49,6 +48,12 @@ a response or test result to the bridge. `CMD OK` in legacy firmware and
 `command_result: accepted` in V2 confirm only that the attached radio accepted
 the transmission process; they do not confirm reception, detector operation,
 or a passed test.
+
+The legacy firmware additionally emits a synthetic `PASS` event using the
+configured bridge device ID. This is the legacy representation of the bridge
+having initiated the signal—the equivalent of V2's `command_result: accepted`.
+It is not a reply from any detector and must not update a detector's physical
+test history.
 
 Pressing the physical test button on a detector is different. That detector
 transmits its own test event across the WiSafe2 network, including to the
