@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Stage 4 — serial protocol v2 with legacy compatibility
+
+- Add opt-in serial protocol v2 negotiation while retaining legacy mode after every reset.
+- Add newline-delimited JSON events, heartbeats, status, errors, and correlated command results.
+- Report command transmission acceptance separately from genuine detector test results.
+- Expose firmware/protocol versions, uptime, radio state, and diagnostic counters.
+- Keep direct/raw mode unchanged and do not expose emergency-simulation commands in v2.
+- Document the complete v2 wire protocol and compatibility behaviour.
+
 ### Stage 3 — protocol model and diagnostics
 
 - Decode supported radio frames into a fixed-size `RadioEvent` model before serialising legacy output.

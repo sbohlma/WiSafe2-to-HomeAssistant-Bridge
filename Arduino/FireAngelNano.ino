@@ -10,9 +10,10 @@ volatile byte Slavereceived, Slavesend;
 int IRQState = 1;
 int IRQLastState = 1;
 int sendWait = 0;
-const int BUFFER_SIZE = 25;                       // Buffer for SPI and Serial. All commands must be less than the size this buffer
-byte serialBuffer[BUFFER_SIZE];
-byte spiBuffer[BUFFER_SIZE];
+const byte SPI_BUFFER_SIZE = 25;
+const byte SERIAL_BUFFER_SIZE = 79;
+char serialBuffer[SERIAL_BUFFER_SIZE + 1];
+byte spiBuffer[SPI_BUFFER_SIZE];
 byte serialBufferIndex = 0;
 byte spiBufferIndex = 0;
 boolean serialFrameOverflow = false;
@@ -28,12 +29,18 @@ unsigned int radioReinitializationCount = 0;
 byte lastUnknownFrameType = 0;
 unsigned long spiFrameStartedAt = 0;
 boolean directMode = false;
+boolean protocolV2 = false;
+boolean radioReady = false;
+boolean activeCommandHasId = false;
+unsigned int activeCommandId = 0;
 int maxInitAttempts = 50;                        //MAX number of attempts to Init Radio
 unsigned int heartBeatInterval = 25000;           // Heartbeat interval (in milliseconds)
 unsigned long lastHeartBeat = 0;
 int heartBeatValue = 0;
 const unsigned long SPI_FRAME_TIMEOUT_MS = 100;
 const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 150;
+const char FIRMWARE_VERSION[] = "2.0.0";
+const byte SERIAL_PROTOCOL_VERSION = 2;
 
 enum RadioEventKind : byte {
   RADIO_EVENT_UNKNOWN,
@@ -101,6 +108,7 @@ void setup()
   for (int i = 0; i <= maxInitAttempts; i++)
   {
     if (initRadio() == true) {
+      radioReady = true;
       flushSPIbuffer();
       break;
     }
@@ -254,6 +262,78 @@ void printLegacyCommandEvent(const __FlashStringHelper *event)
 }
 
 
+const __FlashStringHelper *commandName(byte command)
+{
+  switch (command) {
+    case 0x31: return F("co_test");
+    case 0x32: return F("fire_test");
+    case 0x33: return F("combined_test");
+    case 0x34: return F("co_emergency");
+    case 0x35: return F("fire_emergency");
+    case 0x36: return F("silence_co");
+    case 0x37: return F("silence_fire");
+    case 0x38: return F("pairing_state");
+    case 0x39: return F("pairing");
+    default: return F("unknown");
+  }
+}
+
+
+void printV2Prefix(const __FlashStringHelper *type)
+{
+  Serial.print(F("{\"type\":\""));
+  Serial.print(type);
+  Serial.print('"');
+}
+
+
+void printCommandResult(byte command, const __FlashStringHelper *result)
+{
+  printV2Prefix(F("command_result"));
+  if (activeCommandHasId) { Serial.print(F(",\"id\":")); Serial.print(activeCommandId); }
+  Serial.print(F(",\"command\":\"")); Serial.print(commandName(command));
+  Serial.print(F("\",\"result\":\"")); Serial.print(result);
+  Serial.println(F("\"}"));
+}
+
+
+void printV2Error(const __FlashStringHelper *code)
+{
+  printV2Prefix(F("error"));
+  if (activeCommandHasId) { Serial.print(F(",\"id\":")); Serial.print(activeCommandId); }
+  Serial.print(F(",\"code\":\"")); Serial.print(code); Serial.println(F("\"}"));
+}
+
+
+void printV2BridgeReady()
+{
+  printV2Prefix(F("bridge"));
+  Serial.print(F(",\"event\":\"ready\",\"firmware\":\"")); Serial.print(FIRMWARE_VERSION);
+  Serial.print(F("\",\"protocol\":")); Serial.print(SERIAL_PROTOCOL_VERSION);
+  Serial.print(F(",\"radio\":\"")); Serial.print(radioReady ? F("ready") : F("not_ready"));
+  Serial.println(F("\"}"));
+}
+
+
+void printV2Status()
+{
+  printV2Prefix(F("status"));
+  if (activeCommandHasId) { Serial.print(F(",\"id\":")); Serial.print(activeCommandId); }
+  Serial.print(F(",\"firmware\":\"")); Serial.print(FIRMWARE_VERSION);
+  Serial.print(F("\",\"protocol\":")); Serial.print(SERIAL_PROTOCOL_VERSION);
+  Serial.print(F(",\"uptime\":")); Serial.print(millis());
+  Serial.print(F(",\"radio\":\"")); Serial.print(radioReady ? F("ready") : F("not_ready"));
+  Serial.print(F("\",\"diagnostics\":{\"overflow\":")); Serial.print(spiOverflowCount);
+  Serial.print(F(",\"malformed\":")); Serial.print(malformedFrameCount);
+  Serial.print(F(",\"incomplete\":")); Serial.print(incompleteFrameTimeoutCount);
+  Serial.print(F(",\"unknown\":")); Serial.print(unknownFrameCount);
+  Serial.print(F(",\"command_timeout\":")); Serial.print(commandTimeoutCount);
+  Serial.print(F(",\"command_retry\":")); Serial.print(commandRetryCount);
+  Serial.print(F(",\"radio_reinit\":")); Serial.print(radioReinitializationCount);
+  Serial.println(F("}}"));
+}
+
+
 void SendTemplateToRadio(byte CMD)
 {
   lastHeartBeat = millis();
@@ -265,9 +345,14 @@ void SendTemplateToRadio(byte CMD)
     eventCode = (CMD == 0x31) ? 0x41 : ((CMD == 0x32) ? 0x81 : 0xFF);
     byte announce[] = {0x70, DevId0, DevId1, DevId2, eventCode, 0x01, DevModel0, DevModel1, 0x7E};
     attempts = 4;
-    if (!sendAndExpect(announce, sizeof(announce), 0x41, 2, attempts)) { Serial.println(F("CMD FAIL")); return; }
+    if (!sendAndExpect(announce, sizeof(announce), 0x41, 2, attempts)) {
+      if (protocolV2) printCommandResult(CMD, F("timeout")); else Serial.println(F("CMD FAIL"));
+      return;
+    }
     byte transmit[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, eventCode, 0x05, 0x00, 0x02, 0x7E};
+    flushSPIbuffer();
     writeCommand(transmit, sizeof(transmit));
+    if (protocolV2) { printCommandResult(CMD, F("accepted")); return; }
     Serial.println(F("CMD OK"));
     cooperativeWait(1000);
     Serial.print(F("{\"device\":\"")); printBridgeDevice();
@@ -281,7 +366,11 @@ void SendTemplateToRadio(byte CMD)
     commandType = (CMD <= 0x35) ? 0x50 : 0x61;
     eventCode = (CMD == 0x34) ? 0x41 : ((CMD == 0x35) ? 0x81 : ((CMD == 0x36) ? 0x40 : 0x80));
     byte command[] = {commandType, DevId0, DevId1, DevId2, eventCode, (byte)(commandType == 0x61), 0x7E};
-    if (!sendAndExpect(command, sizeof(command), 0x46, 2, attempts)) { Serial.println(F("CMD FAIL")); return; }
+    if (!sendAndExpect(command, sizeof(command), 0x46, 2, attempts)) {
+      if (protocolV2) printCommandResult(CMD, F("timeout")); else Serial.println(F("CMD FAIL"));
+      return;
+    }
+    if (protocolV2) { printCommandResult(CMD, F("accepted")); return; }
     Serial.println(F("CMD OK"));
     cooperativeWait(1000);
     if (CMD == 0x34) printLegacyCommandEvent(F("CARBON MONOXIDE EMERGENCY"));
@@ -292,47 +381,152 @@ void SendTemplateToRadio(byte CMD)
 
   byte pairingState[] = {0xD3, 0x03, 0x7E};
   if (CMD == 0x38) {
-    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 6)) { Serial.println(F("CMD FAIL")); return; }
-    Serial.println(spiBuffer[2] ? F("NETWORK PAIRED") : F("NETWORK UNPAIRED"));
+    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 6)) {
+      if (protocolV2) printCommandResult(CMD, F("timeout")); else Serial.println(F("CMD FAIL"));
+      return;
+    }
+    if (protocolV2) printCommandResult(CMD, spiBuffer[2] ? F("paired") : F("unpaired"));
+    else Serial.println(spiBuffer[2] ? F("NETWORK PAIRED") : F("NETWORK UNPAIRED"));
     return;
   }
 
   if (CMD == 0x39) {
-    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 4)) { Serial.println(F("CMD FAIL")); return; }
-    if (spiBuffer[2]) { Serial.println(F("ERROR NETWORK IS ALREADY PAIRED")); return; }
+    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 4)) {
+      if (protocolV2) printCommandResult(CMD, F("timeout")); else Serial.println(F("CMD FAIL"));
+      return;
+    }
+    if (spiBuffer[2]) {
+      if (protocolV2) printCommandResult(CMD, F("already_paired")); else Serial.println(F("ERROR NETWORK IS ALREADY PAIRED"));
+      return;
+    }
     byte enablePairing[] = {0xD3, 0x12, 0x01, 0x7E};
     if (!sendAndExpect(enablePairing, sizeof(enablePairing), 0x46, 2, 4) ||
-        !sendAndExpect(NULL, 0, 0x41, 2, 1)) { Serial.println(F("CMD FAIL")); return; }
+        !sendAndExpect(NULL, 0, 0x41, 2, 1)) {
+      if (protocolV2) printCommandResult(CMD, F("timeout")); else Serial.println(F("CMD FAIL"));
+      return;
+    }
     byte pairingBroadcast[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0xFF, 0x05, 0x01, 0x01, 0x7E};
+    flushSPIbuffer();
     writeCommand(pairingBroadcast, sizeof(pairingBroadcast));
-    Serial.println(F("NETWORK PAIRING MODE ACTIVATED"));
-    for (byte i = 0; i <= 20; i++) { cooperativeWait(1000); Serial.print('='); }
-    Serial.println();
-    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 1)) { Serial.println(F("CMD FAIL(4)")); return; }
-    Serial.println(spiBuffer[2] ? F("NETWORK IS NOW PAIRED") : F("NETWORK IS STILL UNPAIRED"));
+    if (protocolV2) printCommandResult(CMD, F("accepted"));
+    else Serial.println(F("NETWORK PAIRING MODE ACTIVATED"));
+    for (byte i = 0; i <= 20; i++) { cooperativeWait(1000); if (!protocolV2) Serial.print('='); }
+    if (!protocolV2) Serial.println();
+    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 1)) {
+      if (protocolV2) printV2Error(F("pairing_state_timeout")); else Serial.println(F("CMD FAIL(4)"));
+      return;
+    }
+    if (protocolV2) printCommandResult(CMD, spiBuffer[2] ? F("paired") : F("unpaired"));
+    else Serial.println(spiBuffer[2] ? F("NETWORK IS NOW PAIRED") : F("NETWORK IS STILL UNPAIRED"));
   }
 }
 
+
+
+boolean parseRequestId(const char *json, unsigned int &requestId)
+{
+  const char *position = strstr(json, "\"id\"");
+  if (!position) return false;
+  position = strchr(position, ':');
+  if (!position) return false;
+  position++;
+  while (*position == ' ' || *position == '\t') position++;
+  if (*position < '0' || *position > '9') return false;
+  unsigned long value = 0;
+  while (*position >= '0' && *position <= '9') {
+    value = value * 10 + (*position++ - '0');
+    if (value > 65535UL) return false;
+  }
+  requestId = (unsigned int)value;
+  return true;
+}
+
+
+char *parseCommandName(char *json)
+{
+  char *position = strstr(json, "\"command\"");
+  if (!position) return NULL;
+  position = strchr(position, ':');
+  if (!position) return NULL;
+  position++;
+  while (*position == ' ' || *position == '\t') position++;
+  if (*position++ != '"') return NULL;
+  char *end = strchr(position, '"');
+  if (!end) return NULL;
+  *end = '\0';
+  return position;
+}
+
+
+void handleV2Command(char *json)
+{
+  activeCommandHasId = parseRequestId(json, activeCommandId);
+  char *name = parseCommandName(json);
+  if (!name) { printV2Error(F("malformed_command")); return; }
+  byte command = 0;
+  if (!strcmp(name, "co_test")) command = 0x31;
+  else if (!strcmp(name, "fire_test")) command = 0x32;
+  else if (!strcmp(name, "combined_test")) command = 0x33;
+  else if (!strcmp(name, "silence_co")) command = 0x36;
+  else if (!strcmp(name, "silence_fire")) command = 0x37;
+  else if (!strcmp(name, "pairing_state")) command = 0x38;
+  else if (!strcmp(name, "pairing")) command = 0x39;
+  else if (!strcmp(name, "status")) { printV2Status(); return; }
+  else if (!strcmp(name, "legacy")) {
+    printV2Prefix(F("command_result"));
+    if (activeCommandHasId) { Serial.print(F(",\"id\":")); Serial.print(activeCommandId); }
+    Serial.println(F(",\"command\":\"legacy\",\"result\":\"accepted\"}"));
+    protocolV2 = false;
+    return;
+  } else {
+    printV2Error(F("unknown_command"));
+    return;
+  }
+  SendTemplateToRadio(command);
+}
+
+
+void completeSerialFrame()
+{
+  serialBuffer[serialBufferIndex] = '\0';
+  if (!directMode && !protocolV2 && serialBufferIndex == 2 &&
+      serialBuffer[0] == 'V' && serialBuffer[1] == '2') {
+    protocolV2 = true;
+    printV2BridgeReady();
+  } else if (protocolV2) {
+    handleV2Command(serialBuffer);
+  } else if (serialBufferIndex > 0) {
+    if (directMode) {
+      writeCommand((byte *)serialBuffer, serialBufferIndex);
+      WriteByteToRadio(0x7E);
+    } else {
+      SendTemplateToRadio((byte)serialBuffer[0]);
+    }
+  }
+  serialBufferIndex = 0;
+  serialFrameOverflow = false;
+}
 
 
 void ReadByteFromSerial()
 {
   while (Serial.available() > 0) {
     byte received = Serial.read();
-    if (received == 0x0A || received == 0x0D) continue;
-    if (received == 0x7E) {
-      if (!serialFrameOverflow && serialBufferIndex > 0) {
-        if (directMode) {
-          writeCommand(serialBuffer, serialBufferIndex);
-          WriteByteToRadio(0x7E);
-        } else {
-          SendTemplateToRadio(serialBuffer[0]);
+    boolean terminator = protocolV2 ? (received == '\n') : (received == 0x7E);
+    if (received == '\r') continue;
+    if (!protocolV2 && received == '\n') continue;
+    if (terminator) {
+      if (!serialFrameOverflow && serialBufferIndex > 0) completeSerialFrame();
+      else {
+        if (protocolV2 && serialFrameOverflow) {
+          activeCommandHasId = false;
+          printV2Error(F("serial_frame_overflow"));
         }
+        serialBufferIndex = 0;
+        serialFrameOverflow = false;
       }
-      serialBufferIndex = 0;
-      serialFrameOverflow = false;
     } else if (!serialFrameOverflow) {
-      if (serialBufferIndex < BUFFER_SIZE) serialBuffer[serialBufferIndex++] = received;
+      if (serialBufferIndex < SERIAL_BUFFER_SIZE) serialBuffer[serialBufferIndex++] = (char)received;
       else serialFrameOverflow = true;
     }
   }
@@ -356,7 +550,7 @@ void ReadByteFromRadio()
     {
       if (spiFrameOverflow) {
         if (Slavereceived == 0x7E) flushSPIbuffer();
-      } else if (spiBufferIndex < BUFFER_SIZE) {
+      } else if (spiBufferIndex < SPI_BUFFER_SIZE) {
         if (spiBufferIndex == 0) spiFrameStartedAt = millis();
         spiBuffer[spiBufferIndex++] = Slavereceived;
         if (Slavereceived == 0x7E) radioReceiveBufferReady = true;
@@ -533,11 +727,47 @@ void emitLegacyEvent(const RadioEvent &event)
 }
 
 
+void emitV2Event(const RadioEvent &event)
+{
+  printV2Prefix(F("event"));
+  Serial.print(F(",\"device\":\"")); printDevice(event.device); Serial.print('"');
+  if (event.kind == RADIO_EVENT_TEST || event.kind == RADIO_EVENT_STATUS) {
+    Serial.print(F(",\"model\":\"")); printHexByte(event.model[0]); printHexByte(event.model[1]); Serial.print('"');
+  }
+  Serial.print(F(",\"event\":\""));
+  if (event.kind == RADIO_EVENT_TEST) {
+    if (event.alarm == ALARM_FIRE) Serial.print(F("FIRE_TEST"));
+    else if (event.alarm == ALARM_CARBON_MONOXIDE) Serial.print(F("CO_TEST"));
+    else Serial.print(F("TEST"));
+    Serial.print(F("\",\"result\":\"")); Serial.print(event.testPassed ? F("PASS") : F("FAIL"));
+    Serial.print(F("\",\"base\":\"ON\""));
+    if (event.testPassed) Serial.print(F(",\"battery\":\"OK\""));
+  } else if (event.kind == RADIO_EVENT_STATUS) {
+    Serial.print(F("STATUS\",\"base\":\"")); Serial.print(event.baseOn ? F("ON") : F("OFF"));
+    Serial.print(F("\",\"battery\":\"")); Serial.print(event.batteryLow ? F("LOW") : F("OK")); Serial.print('"');
+  } else if (event.kind == RADIO_EVENT_EMERGENCY) {
+    if (event.alarm == ALARM_FIRE) Serial.print(F("FIRE_EMERGENCY"));
+    else if (event.alarm == ALARM_CARBON_MONOXIDE) Serial.print(F("CO_EMERGENCY"));
+    else Serial.print(F("EMERGENCY"));
+    Serial.print(F("\",\"base\":\"ON\""));
+  } else if (event.kind == RADIO_EVENT_SILENCE) {
+    Serial.print(F("SILENCE\",\"base\":\"ON\""));
+  } else if (event.kind == RADIO_EVENT_MISSING) {
+    Serial.print(F("MISSING\",\"base\":\"MISSING\",\"battery\":\"MISSING\""));
+  }
+  Serial.print(F(",\"raw_status\":")); Serial.print(event.rawStatus);
+  Serial.println('}');
+}
+
+
 void processRadioResponse()
 {
   lastHeartBeat = millis();
   RadioEvent event;
-  if (decodeRadioEvent(event)) emitLegacyEvent(event);
+  if (decodeRadioEvent(event)) {
+    if (protocolV2) emitV2Event(event);
+    else emitLegacyEvent(event);
+  }
 }
 
 
@@ -548,10 +778,16 @@ void processHeartBeat()
   unsigned long currentRunTime = millis();
   if (currentRunTime - lastHeartBeat >= heartBeatInterval) 
   {
-     Serial.print("{\"heartBeat\":\"");
-     //Serial.print(millis()/heartBeatInterval);
-     Serial.print(heartBeatValue);
-     Serial.println("\"}");
+     if (protocolV2) {
+       printV2Prefix(F("heartbeat"));
+       Serial.print(F(",\"uptime\":")); Serial.print(currentRunTime);
+       Serial.print(F(",\"radio\":\"")); Serial.print(radioReady ? F("ready") : F("not_ready"));
+       Serial.println(F("\"}"));
+     } else {
+       Serial.print(F("{\"heartBeat\":\""));
+       Serial.print(heartBeatValue);
+       Serial.println(F("\"}"));
+     }
      lastHeartBeat = currentRunTime;
     if (heartBeatValue < 9){heartBeatValue++;}
     else {heartBeatValue= 0;}
