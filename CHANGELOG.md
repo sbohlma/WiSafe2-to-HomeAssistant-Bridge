@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Stage 2 — reception reliability
+
+- Replace loop-count incomplete-frame expiry with rollover-safe elapsed time.
+- Service and dispatch unsolicited SPI frames during command response, retry, test-result, and pairing waits.
+- Replace command `goto` retries with bounded transaction helpers that validate fresh responses.
+- Separate SPI acquisition, frame dispatch, and command transactions into dedicated helpers.
+- Enable the AVR watchdog with a two-second timeout after successful startup.
+- Keep all legacy command bytes, responses, JSON events, heartbeat, and raw mode behaviour.
+
 ### Stage 1 — correctness and memory safety
 
 - Bound SPI and serial frame acquisition and safely discard overlong frames.

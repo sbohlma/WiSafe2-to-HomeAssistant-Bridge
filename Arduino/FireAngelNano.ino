@@ -1,4 +1,5 @@
 #include<SPI.h>
+#include <avr/wdt.h>
 //#include <ArduinoJson.h>
 
 #define IRQline 9
@@ -12,17 +13,24 @@ int sendWait = 0;
 const int BUFFER_SIZE = 25;                       // Buffer for SPI and Serial. All commands must be less than the size this buffer
 byte serialBuffer[BUFFER_SIZE];
 byte spiBuffer[BUFFER_SIZE];
+byte serialBufferIndex = 0;
 byte spiBufferIndex = 0;
-int spiBufferDumpCounter = 0;
+boolean serialFrameOverflow = false;
 boolean radioReceiveBufferReady = false;
 boolean spiFrameOverflow = false;
 unsigned int spiOverflowCount = 0;
 unsigned int malformedFrameCount = 0;
+unsigned int incompleteFrameTimeoutCount = 0;
+unsigned int commandTimeoutCount = 0;
+unsigned int commandRetryCount = 0;
+unsigned long spiFrameStartedAt = 0;
 boolean directMode = false;
 int maxInitAttempts = 50;                        //MAX number of attempts to Init Radio
 unsigned int heartBeatInterval = 25000;           // Heartbeat interval (in milliseconds)
 unsigned long lastHeartBeat = 0;
 int heartBeatValue = 0;
+const unsigned long SPI_FRAME_TIMEOUT_MS = 100;
+const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 150;
 
 
 //------------------------EMBEDDED DEVICE INFO GOES HERE-------------------------------
@@ -76,6 +84,7 @@ void setup()
         resetFunc();
     }
   }
+  wdt_enable(WDTO_2S);
 }
 
 
@@ -96,9 +105,7 @@ boolean initRadio()
   //byte cmdTemplate[] = {0xD3, 0x14, 0x8E, 0x7E}; // init(2)
   
    
-  sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-  delay(500);
-  if ((spiBufferIndex != 2) || (spiBuffer[0] != 0x46) || (spiBuffer[1] != 0x7E)) {
+  if (!sendAndExpect(cmdTemplate, sizeof(cmdTemplate), 0x46, 2, 1)) {
     Serial.print(".");
     return (false);
   }
@@ -115,13 +122,10 @@ boolean initRadio()
 
 void checkIfSPIbufferIsStagnant()
 {
-  if (spiBufferIndex > 0)
-  { // check the SPI incoming buffer isn't stagnant
-    spiBufferDumpCounter++;
-    if (spiBufferDumpCounter > 1000)
-    {
-      flushSPIbuffer();
-    }
+  if ((spiBufferIndex > 0 || spiFrameOverflow) &&
+      (millis() - spiFrameStartedAt >= SPI_FRAME_TIMEOUT_MS)) {
+    incompleteFrameTimeoutCount++;
+    flushSPIbuffer();
   }
 }
 
@@ -131,7 +135,6 @@ void flushSPIbuffer()
 {
   spiBufferIndex = 0;
   memset(spiBuffer, 0, sizeof(spiBuffer));
-  spiBufferDumpCounter = 0;
   radioReceiveBufferReady = false;
   spiFrameOverflow = false;
 }
@@ -145,267 +148,160 @@ boolean responseIs(byte firstByte, byte expectedLength)
 
 
 
-void SendTemplateToRadio(byte CMD)
+void serviceRadioFrame()
 {
-int retries = 0;
-retry:
-lastHeartBeat = millis();                                                                                          //Delay the next heartbeat to ensure it doesnt come instantly after a message
+  ReadByteFromRadio();
+  checkIfSPIbufferIsStagnant();
+  if (!radioReceiveBufferReady) return;
+  if (directMode) Serial.write(spiBuffer, spiBufferIndex);
+  else processRadioResponse();
+  flushSPIbuffer();
+}
 
-  if (CMD == (0x31))                                                                                               //TEST - CO
-  {
-    retries++;
-    byte cmdTemplate[] = {0x70, DevId0, DevId1, DevId2, 0x41, 0x01, DevModel0, DevModel1, 0x7E};
-    byte cmdTemplate2[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0x41, 0x05, 0x00, 0x02, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x41, 2)) {
-      if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"CARBON MONOXIDE TEST\", \"result\":\"PASS\"}"); 
-  }
-  
-  if (CMD == (0x32))                                                                                               //TEST - SMOKE
-  {
-    retries++;
-    byte cmdTemplate[] = {0x70, DevId0, DevId1, DevId2, 0x81, 0x01, DevModel0, DevModel1, 0x7E};
-    byte cmdTemplate2[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0x81, 0x05, 0x00, 0x02, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x41, 2)) {
-      if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"FIRE TEST\", \"result\":\"PASS\"}"); 
-  }
-  
-  if (CMD == (0x33))                                                                                              //TEST - SMOKE+CO
-  {
-    retries++;
-    byte cmdTemplate[] = {0x70, DevId0, DevId1, DevId2, 0xFF, 0x01, DevModel0, DevModel1, 0x7E};
-    byte cmdTemplate2[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0xFF, 0x05, 0x00, 0x02, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x41, 2)) {
-     if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"TEST\", \"result\":\"PASS\"}"); 
-  }
-  
-  if (CMD == (0x34))                                                                                              //EMERGENCY - CO
-  {
-    retries++;
-    byte cmdTemplate[] = {0x50, DevId0, DevId1, DevId2, 0x41, 0x00, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x46, 2)) {
-      if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"CARBON MONOXIDE EMERGENCY\"}"); 
-  }
-  
-  if (CMD == (0x35))                                                                                            //EMERGENCY - SMOKE
-  {
-    retries++;
-    byte cmdTemplate[] = {0x50, DevId0, DevId1, DevId2, 0x81, 0x00, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x46, 2)) {
-       if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"FIRE EMERGENCY\"}"); 
-  }
-  
-  if (CMD == (0x36))                                                                                            //SILENCE - (As CO device)
-  {
-    retries++;
-    byte cmdTemplate[] = {0x61, DevId0, DevId1, DevId2, 0x40, 0x01, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x46, 2)) {
-      if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"SILENCE\"}"); 
-  }
-  
-  if (CMD == (0x37))                                                                                          //SILENCE - (As SMOKE device)
-  {
-    retries++;
-    byte cmdTemplate[] = {0x61, DevId0, DevId1, DevId2, 0x80, 0x01, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0x46, 2)) {
-    if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    Serial.println("CMD OK");
-    delay (1000);
-    Serial.print("{\"device\":\"");
-    if (DevId0 <= 0x0F) {Serial.print("0");} Serial.print((DevId0), HEX);
-    if (DevId1 <= 0x0F) {Serial.print("0");} Serial.print((DevId1), HEX);
-    if (DevId2 <= 0x0F) {Serial.print("0");} Serial.print((DevId2), HEX);
-    Serial.println("\", \"event\":\"SILENCE\"}"); 
-  }
-  
-  if (CMD == (0x38))                                                                                          //GET PAIRING STATE
-  {
-    retries++;
-    byte cmdTemplate[] = {0xD3, 0x03, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0xD4, 11)) {
-      if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    if (spiBuffer[2] != (0x00)) {
-      Serial.println("NETWORK PAIRED");
-      return;
-    }
-    Serial.println("NETWORK UNPAIRED");
-  }
-  
-  if (CMD == (0x39))                                                                                            //START PAIRING MODE
-  {
-    retries++;
-    byte cmdTemplate[] = {0xD3, 0x03, 0x7E};
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0xD4, 11)) {
-      if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    if (spiBuffer[2] != (0x00)) {
-      Serial.println("ERROR NETWORK IS ALREADY PAIRED");
-      return;
-    }
-    flushSPIbuffer();
-    retries++;
-    byte cmdTemplate2[] = {0xD3, 0x12, 0x01, 0x7E};
-    byte cmdTemplate3[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0xFF, 0x05, 0x01, 0x01, 0x7E};
-    sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
-    if (!responseIs(0x46, 2)) {
-       if (retries > 4) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    flushSPIbuffer();
-    retries++;
-    sendCMDToRadio(NULL, 0, true);
-    if (!responseIs(0x41, 2)) {
-       if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
-    }
-    sendCMDToRadio(cmdTemplate3, sizeof(cmdTemplate3), true);
-    Serial.println("NETWORK PAIRING MODE ACTIVATED");
-    for (int i = 0; i <= 20; i++) {
-      delay(1000);
-      Serial.print("=");
-    }
-    flushSPIbuffer();
-    Serial.println("");
-    sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if (!responseIs(0xD4, 11)) {
-      Serial.println("CMD FAIL(4)");
-      return;
-    }
-    if (spiBuffer[2] != (0x00)) {
-      Serial.println("NETWORK IS NOW PAIRED");
-      return;
-    }
-    Serial.println("NETWORK IS STILL UNPAIRED");
+
+void cooperativeWait(unsigned long durationMs)
+{
+  unsigned long startedAt = millis();
+  while (millis() - startedAt < durationMs) {
+    serviceRadioFrame();
+    processHeartBeat();
+    wdt_reset();
   }
 }
 
 
-
-void sendCMDToRadio(byte cmd[], int cmdSize, boolean waitForReply)
+void writeCommand(const byte cmd[], byte cmdSize)
 {
-  int cmdTTL = 0;
-  // A command attempt must never validate a response left by an earlier attempt.
-  // Process a completed unsolicited frame before starting a fresh transaction.
-  if (radioReceiveBufferReady) {
-    if (directMode) {
-      Serial.write(spiBuffer, spiBufferIndex);
-    } else {
-      processRadioResponse();
-    }
-  }
-  flushSPIbuffer();
-  for (byte i = 0; i < cmdSize; i++) {
-    WriteByteToRadio(cmd[i]);
-  }
-  if (waitForReply == true)
-  {
-    while ((radioReceiveBufferReady == false) && (cmdTTL < 2500))
-    {
+  for (byte i = 0; i < cmdSize; i++) WriteByteToRadio(cmd[i]);
+}
+
+
+boolean sendAndExpect(const byte cmd[], byte cmdSize, byte responseByte,
+                      byte responseLength, byte maxAttempts)
+{
+  for (byte attempt = 0; attempt < maxAttempts; attempt++) {
+    flushSPIbuffer();
+    writeCommand(cmd, cmdSize);
+    unsigned long startedAt = millis();
+    while (millis() - startedAt < COMMAND_RESPONSE_TIMEOUT_MS) {
       ReadByteFromRadio();
-      cmdTTL++;
-      delayMicroseconds(50);
+      checkIfSPIbufferIsStagnant();
+      if (radioReceiveBufferReady) {
+        if (responseIs(responseByte, responseLength)) return true;
+        if (directMode) Serial.write(spiBuffer, spiBufferIndex);
+        else processRadioResponse();
+        flushSPIbuffer();
+      }
+      wdt_reset();
     }
+    commandTimeoutCount++;
+    if (attempt + 1 < maxAttempts) {
+      commandRetryCount++;
+      cooperativeWait(500);
+    }
+  }
+  return false;
+}
+
+
+void printBridgeDevice()
+{
+  if (DevId0 <= 0x0F) Serial.print("0"); Serial.print(DevId0, HEX);
+  if (DevId1 <= 0x0F) Serial.print("0"); Serial.print(DevId1, HEX);
+  if (DevId2 <= 0x0F) Serial.print("0"); Serial.print(DevId2, HEX);
+}
+
+
+void printLegacyCommandEvent(const __FlashStringHelper *event)
+{
+  Serial.print(F("{\"device\":\""));
+  printBridgeDevice();
+  Serial.print(F("\", \"event\":\""));
+  Serial.print(event);
+  Serial.println(F("\"}"));
+}
+
+
+void SendTemplateToRadio(byte CMD)
+{
+  lastHeartBeat = millis();
+  byte eventCode = 0;
+  byte commandType = 0;
+  byte attempts = 6;
+
+  if (CMD >= 0x31 && CMD <= 0x33) {
+    eventCode = (CMD == 0x31) ? 0x41 : ((CMD == 0x32) ? 0x81 : 0xFF);
+    byte announce[] = {0x70, DevId0, DevId1, DevId2, eventCode, 0x01, DevModel0, DevModel1, 0x7E};
+    attempts = 4;
+    if (!sendAndExpect(announce, sizeof(announce), 0x41, 2, attempts)) { Serial.println(F("CMD FAIL")); return; }
+    byte transmit[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, eventCode, 0x05, 0x00, 0x02, 0x7E};
+    writeCommand(transmit, sizeof(transmit));
+    Serial.println(F("CMD OK"));
+    cooperativeWait(1000);
+    Serial.print(F("{\"device\":\"")); printBridgeDevice();
+    if (CMD == 0x31) Serial.println(F("\", \"event\":\"CARBON MONOXIDE TEST\", \"result\":\"PASS\"}"));
+    else if (CMD == 0x32) Serial.println(F("\", \"event\":\"FIRE TEST\", \"result\":\"PASS\"}"));
+    else Serial.println(F("\", \"event\":\"TEST\", \"result\":\"PASS\"}"));
+    return;
+  }
+
+  if (CMD >= 0x34 && CMD <= 0x37) {
+    commandType = (CMD <= 0x35) ? 0x50 : 0x61;
+    eventCode = (CMD == 0x34) ? 0x41 : ((CMD == 0x35) ? 0x81 : ((CMD == 0x36) ? 0x40 : 0x80));
+    byte command[] = {commandType, DevId0, DevId1, DevId2, eventCode, (byte)(commandType == 0x61), 0x7E};
+    if (!sendAndExpect(command, sizeof(command), 0x46, 2, attempts)) { Serial.println(F("CMD FAIL")); return; }
+    Serial.println(F("CMD OK"));
+    cooperativeWait(1000);
+    if (CMD == 0x34) printLegacyCommandEvent(F("CARBON MONOXIDE EMERGENCY"));
+    else if (CMD == 0x35) printLegacyCommandEvent(F("FIRE EMERGENCY"));
+    else printLegacyCommandEvent(F("SILENCE"));
+    return;
+  }
+
+  byte pairingState[] = {0xD3, 0x03, 0x7E};
+  if (CMD == 0x38) {
+    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 6)) { Serial.println(F("CMD FAIL")); return; }
+    Serial.println(spiBuffer[2] ? F("NETWORK PAIRED") : F("NETWORK UNPAIRED"));
+    return;
+  }
+
+  if (CMD == 0x39) {
+    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 4)) { Serial.println(F("CMD FAIL")); return; }
+    if (spiBuffer[2]) { Serial.println(F("ERROR NETWORK IS ALREADY PAIRED")); return; }
+    byte enablePairing[] = {0xD3, 0x12, 0x01, 0x7E};
+    if (!sendAndExpect(enablePairing, sizeof(enablePairing), 0x46, 2, 4) ||
+        !sendAndExpect(NULL, 0, 0x41, 2, 1)) { Serial.println(F("CMD FAIL")); return; }
+    byte pairingBroadcast[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0xFF, 0x05, 0x01, 0x01, 0x7E};
+    writeCommand(pairingBroadcast, sizeof(pairingBroadcast));
+    Serial.println(F("NETWORK PAIRING MODE ACTIVATED"));
+    for (byte i = 0; i <= 20; i++) { cooperativeWait(1000); Serial.print('='); }
+    Serial.println();
+    if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 1)) { Serial.println(F("CMD FAIL(4)")); return; }
+    Serial.println(spiBuffer[2] ? F("NETWORK IS NOW PAIRED") : F("NETWORK IS STILL UNPAIRED"));
   }
 }
 
 
 
 void ReadByteFromSerial()
-{ // check for incoming byte from Serial
-  if (Serial.available() > 0) {
-    delay(4);                                                                   // wait for transmission (Buffer = 25 | 9600bps = 1.04ms/char =30ms | 115200bps = 0.097ms/char =3ms)
-    int rlen = Serial.readBytesUntil(0x7E, serialBuffer, BUFFER_SIZE);          // read 25 bytes, until timeout, or 7E char
-    boolean terminated = (rlen < BUFFER_SIZE);
-    if (!terminated) {
-      // Discard an overlong command through its terminator; never treat a prefix
-      // as a valid command or append a synthetic terminator to it.
-      while (Serial.available()) {
-        if (Serial.read() == 0x7E) break;
+{
+  while (Serial.available() > 0) {
+    byte received = Serial.read();
+    if (received == 0x0A || received == 0x0D) continue;
+    if (received == 0x7E) {
+      if (!serialFrameOverflow && serialBufferIndex > 0) {
+        if (directMode) {
+          writeCommand(serialBuffer, serialBufferIndex);
+          WriteByteToRadio(0x7E);
+        } else {
+          SendTemplateToRadio(serialBuffer[0]);
+        }
       }
-      rlen = 0;
-    }
-    //   if ((serialBuffer[0] == (0x3E)) && (serialBuffer[1] == (0x3E)))
-    if ((rlen > 0) && (directMode == false))
-    {
-      SendTemplateToRadio(serialBuffer[0]);
-      delay(500);                                                               // avoid returning to the main loop too soon (which will flush SPI buffer)
-    }
-    else if (rlen > 0)
-    {
-      for (int i = 0; i < rlen; i++)                                            // send raw hex to radio
-      {
-        WriteByteToRadio(serialBuffer[i]);                                      // send data to the radio... could check it for special commands first
-      }
-      WriteByteToRadio(0x7E);                                                   // replace the 7E char (removed by serial.readBytesUntil)
-    }
-  }                                         
-  if (Serial.available()) {                                                     //Send carriage return characters to a black hole if they've followed the 0x7E terminator
-    if ((Serial.peek() == (0x0A)) || (Serial.peek() == (0x0D))) {
-      Serial.read();
-    }
-  }
-  if (Serial.available()) {
-    if ((Serial.peek() == (0x0A)) || (Serial.peek() == (0x0D))) {
-      Serial.read();
+      serialBufferIndex = 0;
+      serialFrameOverflow = false;
+    } else if (!serialFrameOverflow) {
+      if (serialBufferIndex < BUFFER_SIZE) serialBuffer[serialBufferIndex++] = received;
+      else serialFrameOverflow = true;
     }
   }
 }
@@ -429,12 +325,13 @@ void ReadByteFromRadio()
       if (spiFrameOverflow) {
         if (Slavereceived == 0x7E) flushSPIbuffer();
       } else if (spiBufferIndex < BUFFER_SIZE) {
+        if (spiBufferIndex == 0) spiFrameStartedAt = millis();
         spiBuffer[spiBufferIndex++] = Slavereceived;
-        spiBufferDumpCounter = 0;
         if (Slavereceived == 0x7E) radioReceiveBufferReady = true;
       } else {
         spiOverflowCount++;
         spiFrameOverflow = true;
+        spiFrameStartedAt = millis();
         spiBufferIndex = 0;
         radioReceiveBufferReady = false;
       }
@@ -584,19 +481,8 @@ void processHeartBeat()
 
 void loop()
 {
-  ReadByteFromRadio();                                      // check for incoming SPI byte from Radio to SPIbuffer (SPI master)
-  if (radioReceiveBufferReady == true)
-  { // write bytes from SPIbuffer to Serial
-    if (directMode == true) {
-      Serial.write(spiBuffer, spiBufferIndex);
-    }
-    else
-    {
-      processRadioResponse();                                //process the response
-    }
-    flushSPIbuffer();
-  }
-  checkIfSPIbufferIsStagnant();                             // check if incoming SPI data is incomplete
+  serviceRadioFrame();                                      // acquire, validate and dispatch radio traffic first
   ReadByteFromSerial();                                     // read serial buffer and send it to the radio when its ready
   processHeartBeat();
+  wdt_reset();
 }
