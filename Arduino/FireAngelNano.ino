@@ -6,16 +6,18 @@
 
 volatile boolean SPIreceived;
 volatile byte Slavereceived, Slavesend;
-int ByteFromSerial = 0;
 int IRQState = 1;
 int IRQLastState = 1;
 int sendWait = 0;
 const int BUFFER_SIZE = 25;                       // Buffer for SPI and Serial. All commands must be less than the size this buffer
 byte serialBuffer[BUFFER_SIZE];
 byte spiBuffer[BUFFER_SIZE];
-int spiBufferIndex = 0;
+byte spiBufferIndex = 0;
 int spiBufferDumpCounter = 0;
 boolean radioReceiveBufferReady = false;
+boolean spiFrameOverflow = false;
+unsigned int spiOverflowCount = 0;
+unsigned int malformedFrameCount = 0;
 boolean directMode = false;
 int maxInitAttempts = 50;                        //MAX number of attempts to Init Radio
 unsigned int heartBeatInterval = 25000;           // Heartbeat interval (in milliseconds)
@@ -96,7 +98,7 @@ boolean initRadio()
    
   sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
   delay(500);
-  if ((spiBuffer[0] != (0x46)) && (spiBuffer[1] != (0x7E))) {
+  if ((spiBufferIndex != 2) || (spiBuffer[0] != 0x46) || (spiBuffer[1] != 0x7E)) {
     Serial.print(".");
     return (false);
   }
@@ -131,6 +133,14 @@ void flushSPIbuffer()
   memset(spiBuffer, 0, sizeof(spiBuffer));
   spiBufferDumpCounter = 0;
   radioReceiveBufferReady = false;
+  spiFrameOverflow = false;
+}
+
+
+boolean responseIs(byte firstByte, byte expectedLength)
+{
+  return (radioReceiveBufferReady && spiBufferIndex == expectedLength &&
+          spiBuffer[0] == firstByte && spiBuffer[expectedLength - 1] == 0x7E);
 }
 
 
@@ -147,7 +157,7 @@ lastHeartBeat = millis();                                                       
     byte cmdTemplate[] = {0x70, DevId0, DevId1, DevId2, 0x41, 0x01, DevModel0, DevModel1, 0x7E};
     byte cmdTemplate2[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0x41, 0x05, 0x00, 0x02, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x41)) || (spiBuffer[1] != (0x7E))){ 
+    if (!responseIs(0x41, 2)) {
       if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
@@ -166,7 +176,7 @@ lastHeartBeat = millis();                                                       
     byte cmdTemplate[] = {0x70, DevId0, DevId1, DevId2, 0x81, 0x01, DevModel0, DevModel1, 0x7E};
     byte cmdTemplate2[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0x81, 0x05, 0x00, 0x02, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x41)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x41, 2)) {
       if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
@@ -185,7 +195,7 @@ lastHeartBeat = millis();                                                       
     byte cmdTemplate[] = {0x70, DevId0, DevId1, DevId2, 0xFF, 0x01, DevModel0, DevModel1, 0x7E};
     byte cmdTemplate2[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0xFF, 0x05, 0x00, 0x02, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x41)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x41, 2)) {
      if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
@@ -203,7 +213,7 @@ lastHeartBeat = millis();                                                       
     retries++;
     byte cmdTemplate[] = {0x50, DevId0, DevId1, DevId2, 0x41, 0x00, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x46)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x46, 2)) {
       if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     Serial.println("CMD OK");
@@ -220,7 +230,7 @@ lastHeartBeat = millis();                                                       
     retries++;
     byte cmdTemplate[] = {0x50, DevId0, DevId1, DevId2, 0x81, 0x00, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x46)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x46, 2)) {
        if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     Serial.println("CMD OK");
@@ -237,7 +247,7 @@ lastHeartBeat = millis();                                                       
     retries++;
     byte cmdTemplate[] = {0x61, DevId0, DevId1, DevId2, 0x40, 0x01, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x46)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x46, 2)) {
       if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     Serial.println("CMD OK");
@@ -254,7 +264,7 @@ lastHeartBeat = millis();                                                       
     retries++;
     byte cmdTemplate[] = {0x61, DevId0, DevId1, DevId2, 0x80, 0x01, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0x46)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x46, 2)) {
     if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     Serial.println("CMD OK");
@@ -271,7 +281,7 @@ lastHeartBeat = millis();                                                       
     retries++;
     byte cmdTemplate[] = {0xD3, 0x03, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0xD4)) || (spiBuffer[10] != (0x7E))) {
+    if (!responseIs(0xD4, 11)) {
       if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     if (spiBuffer[2] != (0x00)) {
@@ -286,7 +296,7 @@ lastHeartBeat = millis();                                                       
     retries++;
     byte cmdTemplate[] = {0xD3, 0x03, 0x7E};
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0xD4)) || (spiBuffer[10] != (0x7E))) {
+    if (!responseIs(0xD4, 11)) {
       if (retries > 3) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     if (spiBuffer[2] != (0x00)) {
@@ -298,13 +308,13 @@ lastHeartBeat = millis();                                                       
     byte cmdTemplate2[] = {0xD3, 0x12, 0x01, 0x7E};
     byte cmdTemplate3[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, 0xFF, 0x05, 0x01, 0x01, 0x7E};
     sendCMDToRadio(cmdTemplate2, sizeof(cmdTemplate2), true);
-    if ((spiBuffer[0] != (0x46)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x46, 2)) {
        if (retries > 4) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     flushSPIbuffer();
     retries++;
     sendCMDToRadio(NULL, 0, true);
-    if ((spiBuffer[0] != (0x41)) || (spiBuffer[1] != (0x7E))) {
+    if (!responseIs(0x41, 2)) {
        if (retries > 5) {Serial.println("CMD FAIL");return;} else {delay (500); goto retry; }
     }
     sendCMDToRadio(cmdTemplate3, sizeof(cmdTemplate3), true);
@@ -316,7 +326,7 @@ lastHeartBeat = millis();                                                       
     flushSPIbuffer();
     Serial.println("");
     sendCMDToRadio(cmdTemplate, sizeof(cmdTemplate), true);
-    if ((spiBuffer[0] != (0xD4)) || (spiBuffer[10] != (0x7E))) {
+    if (!responseIs(0xD4, 11)) {
       Serial.println("CMD FAIL(4)");
       return;
     }
@@ -333,6 +343,16 @@ lastHeartBeat = millis();                                                       
 void sendCMDToRadio(byte cmd[], int cmdSize, boolean waitForReply)
 {
   int cmdTTL = 0;
+  // A command attempt must never validate a response left by an earlier attempt.
+  // Process a completed unsolicited frame before starting a fresh transaction.
+  if (radioReceiveBufferReady) {
+    if (directMode) {
+      Serial.write(spiBuffer, spiBufferIndex);
+    } else {
+      processRadioResponse();
+    }
+  }
+  flushSPIbuffer();
   for (byte i = 0; i < cmdSize; i++) {
     WriteByteToRadio(cmd[i]);
   }
@@ -354,13 +374,22 @@ void ReadByteFromSerial()
   if (Serial.available() > 0) {
     delay(4);                                                                   // wait for transmission (Buffer = 25 | 9600bps = 1.04ms/char =30ms | 115200bps = 0.097ms/char =3ms)
     int rlen = Serial.readBytesUntil(0x7E, serialBuffer, BUFFER_SIZE);          // read 25 bytes, until timeout, or 7E char
+    boolean terminated = (rlen < BUFFER_SIZE);
+    if (!terminated) {
+      // Discard an overlong command through its terminator; never treat a prefix
+      // as a valid command or append a synthetic terminator to it.
+      while (Serial.available()) {
+        if (Serial.read() == 0x7E) break;
+      }
+      rlen = 0;
+    }
     //   if ((serialBuffer[0] == (0x3E)) && (serialBuffer[1] == (0x3E)))
-    if (directMode == false)
+    if ((rlen > 0) && (directMode == false))
     {
       SendTemplateToRadio(serialBuffer[0]);
       delay(500);                                                               // avoid returning to the main loop too soon (which will flush SPI buffer)
     }
-    else
+    else if (rlen > 0)
     {
       for (int i = 0; i < rlen; i++)                                            // send raw hex to radio
       {
@@ -371,12 +400,12 @@ void ReadByteFromSerial()
   }                                         
   if (Serial.available()) {                                                     //Send carriage return characters to a black hole if they've followed the 0x7E terminator
     if ((Serial.peek() == (0x0A)) || (Serial.peek() == (0x0D))) {
-      byte blackhole  = Serial.read();
+      Serial.read();
     }
   }
   if (Serial.available()) {
     if ((Serial.peek() == (0x0A)) || (Serial.peek() == (0x0D))) {
-      byte blackhole  = Serial.read();
+      Serial.read();
     }
   }
 }
@@ -397,10 +426,17 @@ void ReadByteFromRadio()
     IRQLastState = IRQState;
     if (SPIreceived == true)
     {
-      spiBuffer[spiBufferIndex++] = Slavereceived;
-      spiBufferDumpCounter = 0;
-      if (Slavereceived == 0x7E) {
-        radioReceiveBufferReady = true;
+      if (spiFrameOverflow) {
+        if (Slavereceived == 0x7E) flushSPIbuffer();
+      } else if (spiBufferIndex < BUFFER_SIZE) {
+        spiBuffer[spiBufferIndex++] = Slavereceived;
+        spiBufferDumpCounter = 0;
+        if (Slavereceived == 0x7E) radioReceiveBufferReady = true;
+      } else {
+        spiOverflowCount++;
+        spiFrameOverflow = true;
+        spiBufferIndex = 0;
+        radioReceiveBufferReady = false;
       }
     }
     (SPDR = 0);
@@ -445,8 +481,12 @@ void WriteByteToRadio(byte byteToSend)
 void processRadioResponse()
 {
 lastHeartBeat = millis();                                                                       //Delay the next heartbeat to ensure it doesnt come instantly after a message
+  if (!radioReceiveBufferReady || spiBufferIndex < 2 || spiBuffer[spiBufferIndex - 1] != 0x7E) {
+    malformedFrameCount++;
+    return;
+  }
   
-  if (spiBuffer[0] == 0x70)                                                                     // Test Event
+  if ((spiBuffer[0] == 0x70) && (spiBufferIndex >= 9))                                           // Test Event
   {
     Serial.print("{\"device\":\"");
     if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
@@ -466,7 +506,7 @@ lastHeartBeat = millis();                                                       
     Serial.println("}");
   }
 
-  if (spiBuffer[0] == 0x71)                                                                    // Base or Battery Event
+  if ((spiBuffer[0] == 0x71) && (spiBufferIndex >= 8))                                          // Base or Battery Event
   {
     Serial.print("{\"device\":\"");
     if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
@@ -489,7 +529,7 @@ lastHeartBeat = millis();                                                       
     Serial.println("\"}");
   }
 
-  if (spiBuffer[0] == 0x50)                                                                     // Emergency Event
+  if ((spiBuffer[0] == 0x50) && (spiBufferIndex >= 7))                                          // Emergency Event
   {
     Serial.print("{\"device\":\"");
     if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
@@ -501,7 +541,7 @@ lastHeartBeat = millis();                                                       
     Serial.println("EMERGENCY\", \"base\":\"ON\"}");
   }
 
-  if (spiBuffer[0] == 0x61)                                                                       // Silence Event
+  if ((spiBuffer[0] == 0x61) && (spiBufferIndex >= 7))                                          // Silence Event
   {
     Serial.print("{\"device\":\"");
     if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
@@ -510,7 +550,7 @@ lastHeartBeat = millis();                                                       
     Serial.println("\", \"event\":\"SILENCE\", \"base\":\"ON\"}");
   }
 
-  if (spiBuffer[0] == 0xD2)                                                                       // Missing Device Event
+  if ((spiBuffer[0] == 0xD2) && (spiBufferIndex >= 10))                                         // Missing Device Event
   {
     Serial.print("{\"device\":\"");
     if (spiBuffer[6] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[6]), HEX);
