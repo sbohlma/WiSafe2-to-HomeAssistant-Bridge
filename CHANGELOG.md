@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Stage 6 — deferred recommendations
+
+- Document evidence-gated reset diagnostics, radio recovery, CI, raw-frame,
+  EEPROM identity, and watchdog-count recommendations without implementing
+  optional firmware behavior.
+
 ### Stage 5 — Home Assistant migration point
 
 - Document the integration changes needed for negotiation, typed messages,
