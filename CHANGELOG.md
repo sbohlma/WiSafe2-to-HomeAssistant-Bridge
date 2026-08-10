@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Stage 3 — protocol model and diagnostics
+
+- Decode supported radio frames into a fixed-size `RadioEvent` model before serialising legacy output.
+- Preserve raw message, event, and status bytes in the decoded representation.
+- Track unknown frame types, malformed frames, overflow, incomplete-frame timeouts, command timeouts/retries, and radio initialisation retries.
+- Retain the legacy `FIRE` abstraction for both `0x81` and `0x82`; available notes and captures do not support inventing a smoke/heat distinction.
+- Preserve the exact legacy event schema, strings, and command behaviour.
+
 ### Stage 2 — reception reliability
 
 - Replace loop-count incomplete-frame expiry with rollover-safe elapsed time.

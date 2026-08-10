@@ -23,6 +23,9 @@ unsigned int malformedFrameCount = 0;
 unsigned int incompleteFrameTimeoutCount = 0;
 unsigned int commandTimeoutCount = 0;
 unsigned int commandRetryCount = 0;
+unsigned int unknownFrameCount = 0;
+unsigned int radioReinitializationCount = 0;
+byte lastUnknownFrameType = 0;
 unsigned long spiFrameStartedAt = 0;
 boolean directMode = false;
 int maxInitAttempts = 50;                        //MAX number of attempts to Init Radio
@@ -31,6 +34,34 @@ unsigned long lastHeartBeat = 0;
 int heartBeatValue = 0;
 const unsigned long SPI_FRAME_TIMEOUT_MS = 100;
 const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 150;
+
+enum RadioEventKind : byte {
+  RADIO_EVENT_UNKNOWN,
+  RADIO_EVENT_TEST,
+  RADIO_EVENT_STATUS,
+  RADIO_EVENT_EMERGENCY,
+  RADIO_EVENT_SILENCE,
+  RADIO_EVENT_MISSING
+};
+
+enum AlarmKind : byte {
+  ALARM_UNSPECIFIED,
+  ALARM_FIRE,
+  ALARM_CARBON_MONOXIDE
+};
+
+struct RadioEvent {
+  RadioEventKind kind;
+  AlarmKind alarm;
+  byte device[3];
+  byte model[2];
+  byte rawMessageType;
+  byte rawEventCode;
+  byte rawStatus;
+  boolean testPassed;
+  boolean baseOn;
+  boolean batteryLow;
+};
 
 
 //------------------------EMBEDDED DEVICE INFO GOES HERE-------------------------------
@@ -73,6 +104,7 @@ void setup()
       flushSPIbuffer();
       break;
     }
+    radioReinitializationCount++;
     if (i == (maxInitAttempts)) {
       if (directMode == true) {
         Serial.write(0x15);
@@ -375,87 +407,137 @@ void WriteByteToRadio(byte byteToSend)
 
 
 
-void processRadioResponse()
+boolean requireFrameLength(byte minimumLength)
 {
-lastHeartBeat = millis();                                                                       //Delay the next heartbeat to ensure it doesnt come instantly after a message
+  if (spiBufferIndex >= minimumLength) return true;
+  malformedFrameCount++;
+  return false;
+}
+
+
+AlarmKind decodeAlarm(byte value)
+{
+  if (value == 0x41) return ALARM_CARBON_MONOXIDE;
+  // Captures establish both as fire-family values, but do not establish a
+  // defensible smoke-versus-heat distinction.
+  if (value == 0x81 || value == 0x82) return ALARM_FIRE;
+  return ALARM_UNSPECIFIED;
+}
+
+
+boolean decodeRadioEvent(RadioEvent &event)
+{
+  memset(&event, 0, sizeof(event));
   if (!radioReceiveBufferReady || spiBufferIndex < 2 || spiBuffer[spiBufferIndex - 1] != 0x7E) {
     malformedFrameCount++;
-    return;
+    return false;
   }
-  
-  if ((spiBuffer[0] == 0x70) && (spiBufferIndex >= 9))                                           // Test Event
-  {
-    Serial.print("{\"device\":\"");
-    if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
-    if (spiBuffer[2] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[2]), HEX);
-    if (spiBuffer[3] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[3]), HEX);
-    Serial.print("\", \"model\":\"");
-    if (spiBuffer[6] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[6]), HEX);
-    if (spiBuffer[7] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[7]), HEX);
-    Serial.print("\", \"event\":\"");
-    if (spiBuffer[4] == 0x81) {Serial.print("FIRE ");}
-    if (spiBuffer[4] == 0x82) {Serial.print("FIRE ");}
-    if (spiBuffer[4] == 0x41) {Serial.print("CARBON MONOXIDE ");}
-    //if (spiBuffer[4] == 0xFF) {Serial.print("ALL");}
-    Serial.print("TEST\", \"result\":\"");
-    if (spiBuffer[5] == 0x01) {Serial.print("PASS\", \"base\":\"ON\", \"battery\":\"OK\"");} 
-    else {Serial.print("FAIL\", \"base\":\"ON\"");} 
-    Serial.println("}");
+  event.rawMessageType = spiBuffer[0];
+  switch (event.rawMessageType) {
+    case 0x70:
+      if (!requireFrameLength(9)) return false;
+      event.kind = RADIO_EVENT_TEST;
+      memcpy(event.device, &spiBuffer[1], 3);
+      memcpy(event.model, &spiBuffer[6], 2);
+      event.rawEventCode = spiBuffer[4];
+      event.rawStatus = spiBuffer[5];
+      event.alarm = decodeAlarm(event.rawEventCode);
+      event.testPassed = event.rawStatus == 0x01;
+      event.baseOn = true;
+      event.batteryLow = false;
+      return true;
+    case 0x71:
+      if (!requireFrameLength(8)) return false;
+      event.kind = RADIO_EVENT_STATUS;
+      memcpy(event.device, &spiBuffer[1], 3);
+      memcpy(event.model, &spiBuffer[4], 2);
+      event.rawStatus = spiBuffer[6];
+      event.baseOn = event.rawStatus & 0x04;
+      event.batteryLow = event.rawStatus & 0x42;
+      return true;
+    case 0x50:
+      if (!requireFrameLength(7)) return false;
+      event.kind = RADIO_EVENT_EMERGENCY;
+      memcpy(event.device, &spiBuffer[1], 3);
+      event.rawEventCode = spiBuffer[4];
+      event.rawStatus = spiBuffer[5];
+      event.alarm = decodeAlarm(event.rawEventCode);
+      event.baseOn = true;
+      return true;
+    case 0x61:
+      if (!requireFrameLength(7)) return false;
+      event.kind = RADIO_EVENT_SILENCE;
+      memcpy(event.device, &spiBuffer[1], 3);
+      event.rawEventCode = spiBuffer[4];
+      event.rawStatus = spiBuffer[5];
+      event.baseOn = true;
+      return true;
+    case 0xD2:
+      if (!requireFrameLength(10)) return false;
+      event.kind = RADIO_EVENT_MISSING;
+      memcpy(event.device, &spiBuffer[6], 3);
+      return true;
+    default:
+      lastUnknownFrameType = event.rawMessageType;
+      unknownFrameCount++;
+      return false;
   }
+}
 
-  if ((spiBuffer[0] == 0x71) && (spiBufferIndex >= 8))                                          // Base or Battery Event
-  {
-    Serial.print("{\"device\":\"");
-    if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
-    if (spiBuffer[2] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[2]), HEX);
-    if (spiBuffer[3] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[3]), HEX);
-    Serial.print("\", \"model\":\"");
-    if (spiBuffer[4] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[4]), HEX);
-    if (spiBuffer[5] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[5]), HEX);
-    Serial.print("\", \"base\":\"");
 
-    //byte testBit = 0x04
-    if (spiBuffer[6] & 0x04) {Serial.print("ON");} else {Serial.print("OFF");}
+void printHexByte(byte value)
+{
+  if (value <= 0x0F) Serial.print('0');
+  Serial.print(value, HEX);
+}
 
-    Serial.print("\", \"battery\":\"");
-    if (spiBuffer[6] & 0x42) {Serial.print("LOW");} else {Serial.print("OK");}
-   // 1 is always set
-   // 4 is base on/off
-   // 2 and 64 seem to flag a low battery
-   
-    Serial.println("\"}");
+
+void printDevice(const byte device[3])
+{
+  printHexByte(device[0]);
+  printHexByte(device[1]);
+  printHexByte(device[2]);
+}
+
+
+void printAlarmName(AlarmKind alarm)
+{
+  if (alarm == ALARM_FIRE) Serial.print(F("FIRE "));
+  else if (alarm == ALARM_CARBON_MONOXIDE) Serial.print(F("CARBON MONOXIDE "));
+}
+
+
+void emitLegacyEvent(const RadioEvent &event)
+{
+  Serial.print(F("{\"device\":\""));
+  printDevice(event.device);
+  if (event.kind == RADIO_EVENT_TEST) {
+    Serial.print(F("\", \"model\":\"")); printHexByte(event.model[0]); printHexByte(event.model[1]);
+    Serial.print(F("\", \"event\":\"")); printAlarmName(event.alarm);
+    Serial.print(F("TEST\", \"result\":\""));
+    if (event.testPassed) Serial.print(F("PASS\", \"base\":\"ON\", \"battery\":\"OK\""));
+    else Serial.print(F("FAIL\", \"base\":\"ON\""));
+    Serial.println('}');
+  } else if (event.kind == RADIO_EVENT_STATUS) {
+    Serial.print(F("\", \"model\":\"")); printHexByte(event.model[0]); printHexByte(event.model[1]);
+    Serial.print(event.baseOn ? F("\", \"base\":\"ON") : F("\", \"base\":\"OFF"));
+    Serial.println(event.batteryLow ? F("\", \"battery\":\"LOW\"}") : F("\", \"battery\":\"OK\"}"));
+  } else if (event.kind == RADIO_EVENT_EMERGENCY) {
+    Serial.print(F("\", \"event\":\"")); printAlarmName(event.alarm);
+    Serial.println(F("EMERGENCY\", \"base\":\"ON\"}"));
+  } else if (event.kind == RADIO_EVENT_SILENCE) {
+    Serial.println(F("\", \"event\":\"SILENCE\", \"base\":\"ON\"}"));
+  } else if (event.kind == RADIO_EVENT_MISSING) {
+    Serial.println(F("\", \"event\":\"MISSING\", \"base\":\"MISSING\", \"battery\":\"MISSING\"}"));
   }
+}
 
-  if ((spiBuffer[0] == 0x50) && (spiBufferIndex >= 7))                                          // Emergency Event
-  {
-    Serial.print("{\"device\":\"");
-    if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
-    if (spiBuffer[2] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[2]), HEX);
-    if (spiBuffer[3] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[3]), HEX);
-    Serial.print("\", \"event\":\"");
-    if (spiBuffer[4] == 0x81) {Serial.print("FIRE ");}
-    if (spiBuffer[4] == 0x41) {Serial.print("CARBON MONOXIDE ");}
-    Serial.println("EMERGENCY\", \"base\":\"ON\"}");
-  }
 
-  if ((spiBuffer[0] == 0x61) && (spiBufferIndex >= 7))                                          // Silence Event
-  {
-    Serial.print("{\"device\":\"");
-    if (spiBuffer[1] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[1]), HEX);
-    if (spiBuffer[2] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[2]), HEX);
-    if (spiBuffer[3] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[3]), HEX);
-    Serial.println("\", \"event\":\"SILENCE\", \"base\":\"ON\"}");
-  }
-
-  if ((spiBuffer[0] == 0xD2) && (spiBufferIndex >= 10))                                         // Missing Device Event
-  {
-    Serial.print("{\"device\":\"");
-    if (spiBuffer[6] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[6]), HEX);
-    if (spiBuffer[7] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[7]), HEX);
-    if (spiBuffer[8] <= 0x0F) {Serial.print("0");} Serial.print((spiBuffer[8]), HEX);
-    Serial.println("\", \"event\":\"MISSING\", \"base\":\"MISSING\", \"battery\":\"MISSING\"}");
-  }
-  
+void processRadioResponse()
+{
+  lastHeartBeat = millis();
+  RadioEvent event;
+  if (decodeRadioEvent(event)) emitLegacyEvent(event);
 }
 
 
