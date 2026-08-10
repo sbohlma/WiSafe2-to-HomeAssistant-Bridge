@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Firmware split — legacy-only and V2-only
+
+- Restore `Arduino/FireAngelNano.ino` to the improved Stage 3 legacy protocol.
+- Add `Arduino-V2/FireAngelNanoV2.ino` as a separate protocol-2-only image.
+- Make the V2 image announce its firmware and protocol automatically at startup.
+- Remove protocol negotiation, legacy fallback, and the runtime legacy command
+  from the V2 image.
+- Document passive Home Assistant protocol detection and both flashing choices.
+
 ### Stage 6 — deferred recommendations
 
 - Document evidence-gated reset diagnostics, radio recovery, CI, raw-frame,
@@ -10,13 +19,13 @@
 
 ### Stage 5 — Home Assistant migration point
 
-- Document the integration changes needed for negotiation, typed messages,
+- Document the integration changes needed for passive detection, typed messages,
   command correlation, diagnostics, and three-way firmware compatibility.
 - Make no changes to the separate Home Assistant integration repository.
 
-### Stage 4 — serial protocol v2 with legacy compatibility
+### Stage 4 — serial protocol v2
 
-- Add opt-in serial protocol v2 negotiation while retaining legacy mode after every reset.
+- Add a dedicated V2-only firmware with an unsolicited startup identification message.
 - Add newline-delimited JSON events, heartbeats, status, errors, and correlated command results.
 - Report command transmission acceptance separately from genuine detector test results.
 - Expose firmware/protocol versions, uptime, radio state, and diagnostic counters.

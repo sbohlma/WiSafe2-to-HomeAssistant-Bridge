@@ -1,63 +1,65 @@
 # WiSafe2 bridge serial protocol v2
 
-Firmware `2.0.0` retains the original serial interface and adds an opt-in,
-newline-delimited JSON protocol. Serial settings remain 115200 baud, 8 data
-bits, no parity, one stop bit.
+Protocol v2 is implemented by the dedicated
+`Arduino-V2/FireAngelNanoV2.ino` firmware. It is not a runtime mode of the
+legacy firmware. Serial settings remain 115200 baud, 8 data bits, no parity,
+one stop bit.
 
-## Negotiation and compatibility
+In normal mode, both directions use UTF-8/ASCII JSON objects terminated by LF
+(`0x0A`). CR before LF is accepted. Input is limited to 79 bytes excluding
+CR/LF. Command names and string values are case-sensitive.
 
-The bridge starts in legacy mode after every reset. In normal (non-direct)
-mode, send these three bytes to opt in:
+The hardware direct/raw jumper remains supported. When selected, the firmware
+uses the original raw `0x7E` framing and does not emit or accept protocol-v2
+JSON.
 
-```text
-V2~
-```
+## Startup identification
 
-`~` above means the byte `0x7E`, not a newline. A successful negotiation
-returns one JSON line:
-
-```json
-{"type":"bridge","event":"ready","firmware":"2.0.0","protocol":2,"radio":"ready"}
-```
-
-After that response, both directions use UTF-8/ASCII JSON objects terminated
-by LF (`0x0A`). CR before LF is accepted. JSON input is limited to 79 bytes
-excluding CR/LF. Object member order is unrestricted and horizontal whitespace
-around values is accepted. Command names and string values are case-sensitive.
-
-To return to legacy mode without resetting, send:
+After the radio initializes, every normal-mode boot emits:
 
 ```json
-{"command":"legacy","id":9}
+{"type":"bridge","event":"startup","firmware":"2.0.0","protocol":2,"radio":"ready"}
 ```
 
-The bridge acknowledges that command in v2 before changing mode. Direct/raw
-jumper mode never negotiates v2; it retains byte-for-byte raw operation.
+This unsolicited message tells Home Assistant that the board is running the
+V2-only image. No negotiation command is sent or accepted. There is no command
+that changes this firmware into legacy mode.
+
+Opening an Arduino Nano serial port commonly resets the board, but hosts must
+not rely on that behavior. If the startup line was missed, any later typed v2
+heartbeat, event, status, command result, or error also identifies the protocol
+as v2.
+
+If radio initialization ultimately fails, the firmware emits a JSON error
+before resetting:
+
+```json
+{"type":"error","code":"radio_init_failed"}
+```
 
 ## Common fields
 
-- `type`: message category: `bridge`, `heartbeat`, `event`, `command_result`,
-  `status`, or `error`.
+- `type`: `bridge`, `heartbeat`, `event`, `command_result`, `status`, or
+  `error`.
 - `id`: optional unsigned 16-bit request ID copied from a command.
-- `device`: uppercase, six-digit WiSafe2 device ID.
-- `model`: uppercase, four-digit model ID when present in the radio frame.
-- `raw_status`: unsigned original status byte. Unknown bits are not discarded.
+- `device`: uppercase six-digit WiSafe2 device ID.
+- `model`: uppercase four-digit model ID when present in the radio frame.
+- `raw_status`: unsigned original status byte; unknown bits are preserved.
 - `radio`: `ready` or `not_ready`.
-- `uptime`: rollover-capable Arduino `millis()` value in milliseconds.
+- `uptime`: Arduino `millis()` value in milliseconds.
 
-Consumers must ignore unknown fields and unknown enum values for forward
-compatibility. Numbers are JSON numbers, not quoted strings.
+Consumers must ignore unknown fields and enum values. Numbers are JSON numbers,
+not quoted strings.
 
-## Bridge, heartbeat, and status
+## Heartbeat and status
 
-The negotiation response is the `bridge`/`ready` message shown above.
-Heartbeat interval remains 25 seconds:
+Heartbeat interval is 25 seconds:
 
 ```json
 {"type":"heartbeat","uptime":123456,"radio":"ready"}
 ```
 
-Request status and diagnostics with:
+Request status with:
 
 ```json
 {"command":"status","id":17}
@@ -69,13 +71,13 @@ Example response:
 {"type":"status","id":17,"firmware":"2.0.0","protocol":2,"uptime":123456,"radio":"ready","diagnostics":{"overflow":0,"malformed":0,"incomplete":0,"unknown":0,"command_timeout":0,"command_retry":0,"radio_reinit":0}}
 ```
 
-Diagnostic counters are unsigned 16-bit counters and wrap naturally. They are
-reset when the bridge resets.
+Diagnostic counters are unsigned 16-bit counters, wrap naturally, and reset at
+boot.
 
 ## Received radio events
 
-All of these are reports received from the WiSafe2 network, not locally
-synthesised command results.
+These messages report traffic received from the WiSafe2 network. They are not
+synthesized command results.
 
 ```json
 {"type":"event","device":"92BF1A","model":"ED08","event":"FIRE_TEST","result":"PASS","base":"ON","battery":"OK","raw_status":1}
@@ -87,21 +89,20 @@ synthesised command results.
 {"type":"event","device":"92BF1A","event":"MISSING","base":"MISSING","battery":"MISSING","raw_status":0}
 ```
 
-Known test event values `0x81` and `0x82` both remain `FIRE_TEST`. Existing
-captures do not establish a reliable smoke-versus-heat distinction. An unknown
-fire/test subtype is emitted as `TEST`; an unknown emergency subtype is emitted
-as `EMERGENCY`.
+Known values `0x81` and `0x82` both remain in the `FIRE` family. Available
+captures do not establish a reliable smoke-versus-heat distinction. Unknown
+test and emergency subtypes are emitted as `TEST` and `EMERGENCY`.
 
-## Commands
+## Commands and correlation
 
-Commands have the form:
+Commands are compact JSON lines:
 
 ```json
 {"command":"fire_test","id":17}
 ```
 
-`id` is optional and, when present, must be an integer from 0 through 65535.
-The response repeats it. Supported v2 command names are:
+`id` is optional and, when present, is an integer from 0 through 65535.
+Supported commands are:
 
 - `co_test`
 - `fire_test`
@@ -111,9 +112,8 @@ The response repeats it. Supported v2 command names are:
 - `pairing_state`
 - `pairing`
 - `status`
-- `legacy`
 
-Emergency simulation is deliberately not exposed in protocol v2.
+Emergency simulation is deliberately not exposed.
 
 A successfully acknowledged/transmitted test request produces:
 
@@ -121,64 +121,45 @@ A successfully acknowledged/transmitted test request produces:
 {"type":"command_result","id":17,"command":"fire_test","result":"accepted"}
 ```
 
-This does **not** mean a detector passed its test. Only a later, independently
-received `event` message whose `event` is `FIRE_TEST`, `CO_TEST`, or `TEST` and
-whose `result` is `PASS` is a detector test result.
+`accepted` does not mean a detector passed. Only a later, independently
+received `type: event` test message with `result: PASS` is a detector test
+result.
 
-Other command results are:
-
-- General commands: `accepted` or `timeout`.
-- `pairing_state`: `paired`, `unpaired`, or `timeout`.
-- `pairing`: `accepted`, followed after the pairing window by `paired` or
-  `unpaired`; it may instead return `already_paired` or `timeout`.
-
-Unsolicited radio events can appear between a command and its result and must be
-processed normally.
+General commands return `accepted` or `timeout`. `pairing_state` returns
+`paired`, `unpaired`, or `timeout`. `pairing` returns `accepted`, followed after
+the pairing window by `paired` or `unpaired`; it may instead return
+`already_paired` or `timeout`. Unsolicited events can appear between a command
+and its result and must be processed normally.
 
 ## Errors
-
-Errors are JSON lines such as:
 
 ```json
 {"type":"error","id":17,"code":"unknown_command"}
 {"type":"error","code":"serial_frame_overflow"}
 ```
 
-Defined codes are `malformed_command`, `unknown_command`,
-`serial_frame_overflow`, and `pairing_state_timeout`. A malformed input line is
-discarded at its LF boundary, allowing the next line to resynchronise.
-
-## Differences from the legacy protocol
-
-- V2 is opt-in; legacy remains the reset default.
-- V2 uses LF-delimited JSON in both directions instead of single command bytes
-  and `0x7E` framing.
-- Every output has a `type`; field names and enum values are stable and
-  machine-oriented.
-- Heartbeats contain uptime and radio state instead of a cycling digit string.
-- Command results can carry correlation IDs.
-- Command acceptance is distinct from genuine detector test `PASS` events.
-- Firmware version, protocol version, uptime, radio state, and counters are
-  queryable.
-- V2 does not expose the legacy emergency-simulation command bytes.
-- Raw/direct jumper mode is unchanged and cannot enter v2.
-
-The legacy output, heartbeat, command bytes `0x31` through `0x39`, textual
-responses, and synthetic post-command test messages remain unchanged in legacy
-mode for compatibility with the existing Home Assistant integration.
+Defined codes are `malformed_command`, `invalid_id`, `unknown_command`,
+`serial_frame_overflow`, `pairing_state_timeout`, and `radio_init_failed`.
+Malformed input is discarded at its LF boundary so the next line can
+resynchronize.
 
 ## Example transcript
 
-`>` denotes bytes sent by the host and `<` denotes one bridge output line.
+The first line is unsolicited. `>` is host input and `<` is firmware output.
 
 ```text
-> V2<0x7E>
-< {"type":"bridge","event":"ready","firmware":"2.0.0","protocol":2,"radio":"ready"}
+< {"type":"bridge","event":"startup","firmware":"2.0.0","protocol":2,"radio":"ready"}<LF>
 > {"command":"fire_test","id":17}<LF>
-< {"type":"command_result","id":17,"command":"fire_test","result":"accepted"}
-< {"type":"event","device":"92BF1A","model":"ED08","event":"FIRE_TEST","result":"PASS","base":"ON","battery":"OK","raw_status":1}
+< {"type":"command_result","id":17,"command":"fire_test","result":"accepted"}<LF>
+< {"type":"event","device":"92BF1A","model":"ED08","event":"FIRE_TEST","result":"PASS","base":"ON","battery":"OK","raw_status":1}<LF>
 > {"command":"status","id":18}<LF>
-< {"type":"status","id":18,"firmware":"2.0.0","protocol":2,"uptime":123456,"radio":"ready","diagnostics":{"overflow":0,"malformed":0,"incomplete":0,"unknown":0,"command_timeout":0,"command_retry":0,"radio_reinit":0}}
-> {"command":"legacy","id":19}<LF>
-< {"type":"command_result","id":19,"command":"legacy","result":"accepted"}
+< {"type":"status","id":18,"firmware":"2.0.0","protocol":2,"uptime":123456,"radio":"ready","diagnostics":{"overflow":0,"malformed":0,"incomplete":0,"unknown":0,"command_timeout":0,"command_retry":0,"radio_reinit":0}}<LF>
 ```
+
+## Relationship to legacy firmware
+
+The improved legacy-only image is `Arduino/FireAngelNano.ino`. It preserves the
+original command bytes, `0x7E` framing, heartbeat, textual responses, and legacy
+JSON. Choosing between protocols is therefore a firmware-flashing decision,
+not a serial session setting. Home Assistant should parse both, detect V2 from
+its typed startup/output messages, and never send a protocol probe.

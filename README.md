@@ -1,7 +1,9 @@
 # WiSafe2-to-HA Bridge readme
 
 ## Quick Links
-- [Arduino Sketch](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
+- [Improved legacy firmware](Arduino/FireAngelNano.ino)
+- [V2-only firmware](Arduino-V2/FireAngelNanoV2.ino)
+- [Firmware compatibility guide](docs/firmware-variants.md)
 - [Enclosure](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
 - [PCB (easyEDA)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
 - [HomeAssistant Configuration](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA)
@@ -166,9 +168,18 @@ Here's a link to the STL file for the enclosure I made: [Enclosure](https://gith
 ![Enclosure-Closed](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/enclosure-closed.jpg)
 
 ## Building the project
-Program the Arduino Nano, using the sketch code provided. You shouldn't need to change anything.
+Program the Arduino Nano with one of the two firmware images:
 
-[Arduino Sketch](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
+* `Arduino/FireAngelNano.ino` is the improved legacy-only firmware and remains
+  compatible with the original serial protocol.
+* `Arduino-V2/FireAngelNanoV2.ino` is the V2-only newline-delimited JSON
+  firmware. It announces protocol 2 automatically during startup and requires
+  a V2-capable Home Assistant integration.
+
+The choice is made when flashing; neither firmware negotiates or switches to
+the other protocol at runtime. See
+[`docs/firmware-variants.md`](docs/firmware-variants.md) for the compatibility
+details. You shouldn't need to change the hardware or pin assignments.
 
 Although there are some variables declared for the 'EMBEDDED DEVICE ID' and 'MODEL', which you can change if you like. Basically, the radio thinks it's connected to an alarm. The parameters we set here define the type of alarm that the Nano will simulate.
 This is used when we initiate a test from HA, or when the alarms are silenced.
@@ -859,5 +870,3 @@ I also have the events configured as 'critical', so that my phone will make a so
       message: Warning! The {{ trigger.to_state.attributes.friendly_name }} has been
         reported as missing by other alarms in the network 
  ```
-
-
