@@ -265,15 +265,13 @@ void SendTemplateToRadio(byte CMD)
     eventCode = (CMD == 0x31) ? 0x41 : ((CMD == 0x32) ? 0x81 : 0xFF);
     byte announce[] = {0x70, DevId0, DevId1, DevId2, eventCode, 0x01, DevModel0, DevModel1, 0x7E};
     attempts = 4;
+    // This acknowledgement comes from the attached donor radio only. Remote
+    // detectors sound the interlink test signal but do not send test results.
     if (!sendAndExpect(announce, sizeof(announce), 0x41, 2, attempts)) { Serial.println(F("CMD FAIL")); return; }
     byte transmit[] = {0x91, DevId0, DevId1, DevId2, DevModel0, DevModel1, eventCode, 0x05, 0x00, 0x02, 0x7E};
+    flushSPIbuffer();
     writeCommand(transmit, sizeof(transmit));
     Serial.println(F("CMD OK"));
-    cooperativeWait(1000);
-    Serial.print(F("{\"device\":\"")); printBridgeDevice();
-    if (CMD == 0x31) Serial.println(F("\", \"event\":\"CARBON MONOXIDE TEST\", \"result\":\"PASS\"}"));
-    else if (CMD == 0x32) Serial.println(F("\", \"event\":\"FIRE TEST\", \"result\":\"PASS\"}"));
-    else Serial.println(F("\", \"event\":\"TEST\", \"result\":\"PASS\"}"));
     return;
   }
 
@@ -435,6 +433,7 @@ boolean decodeRadioEvent(RadioEvent &event)
   event.rawMessageType = spiBuffer[0];
   switch (event.rawMessageType) {
     case 0x70:
+      // Received from a detector when its physical test button is pressed.
       if (!requireFrameLength(9)) return false;
       event.kind = RADIO_EVENT_TEST;
       memcpy(event.device, &spiBuffer[1], 3);

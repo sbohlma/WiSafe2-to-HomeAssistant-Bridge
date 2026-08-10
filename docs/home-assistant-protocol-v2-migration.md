@@ -108,7 +108,18 @@ Continue conservative smoke/heat handling for `0x81` and `0x82`.
 
 Only a V2 `type: event` test with `result: PASS` may update
 `last_test_pass`. A `command_result` of `accepted` means only that the bridge
-accepted/transmitted a request.
+radio accepted/transmitted a sound request. Remote detectors do not reply.
+
+For legacy input, update `last_test_pass` only for a detector-originated test
+event. The original C19HOP firmware emits a synthetic `PASS` under the
+configured bridge device ID after a host command; ignore that message as a
+detector result (it may be retained as a bridge diagnostic). The improved
+legacy firmware no longer emits it.
+
+Each detector must be tested by pressing its own physical test button. The
+resulting WiSafe2 event identifies that detector and can update its timestamp.
+Do not present bridge-originated sound commands as “test all,” successful
+detector tests, or evidence that any detector received the RF signal.
 
 ## Sending commands
 
@@ -116,15 +127,19 @@ Use semantic command keys with an encoding table:
 
 | Semantic command | Legacy bytes | V2 command |
 | --- | --- | --- |
-| CO test | `b"1~"` | `co_test` |
-| Fire test | `b"2~"` | `fire_test` |
-| Combined test | `b"3~"` | `combined_test` |
+| Sound CO test signal | `b"1~"` | `sound_co` |
+| Sound fire test signal | `b"2~"` | `sound_fire` |
+| Sound combined test signal | `b"3~"` | `sound_combined` |
 | Silence as CO | `b"6~"` | `silence_co` |
 | Silence as fire | `b"7~"` | `silence_fire` |
 | Pairing state | `b"8~"` | `pairing_state` |
 | Start pairing | `b"9~"` | `pairing` |
 
 Keep emergency simulation absent.
+
+Update the three Home Assistant button labels to say “Sound … test signal,”
+not “Test …” or “Test all.” Their success feedback means command acceptance
+only. It must not update a detector entity or `last_test_pass`.
 
 For legacy mode, preserve the exact bytes and fire-and-forget behavior. For V2,
 allocate an unused 16-bit ID, register a future before writing, encode compact
@@ -184,7 +199,10 @@ Add mocked serial tests for:
 - command buttons unavailable while mode is unknown;
 - concurrent V2 correlation with interleaved alarm events;
 - command acceptance not changing `last_test_pass`;
+- original-firmware synthetic bridge-ID `PASS` being ignored as a detector
+  result;
 - genuine received test `PASS` changing `last_test_pass`;
+- separate physical-button events updating only their originating detector;
 - unchanged discovery, persistence, partial updates, and legacy behavior.
 
 Run the integration repository checks:

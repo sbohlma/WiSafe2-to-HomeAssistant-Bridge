@@ -243,9 +243,9 @@ boolean sendAndExpect(const byte cmd[], byte cmdSize, byte responseByte,
 const __FlashStringHelper *commandName(byte command)
 {
   switch (command) {
-    case 0x31: return F("co_test");
-    case 0x32: return F("fire_test");
-    case 0x33: return F("combined_test");
+    case 0x31: return F("sound_co");
+    case 0x32: return F("sound_fire");
+    case 0x33: return F("sound_combined");
     case 0x34: return F("co_emergency");
     case 0x35: return F("fire_emergency");
     case 0x36: return F("silence_co");
@@ -323,6 +323,8 @@ void SendTemplateToRadio(byte CMD)
     eventCode = (CMD == 0x31) ? 0x41 : ((CMD == 0x32) ? 0x81 : 0xFF);
     byte announce[] = {0x70, DevId0, DevId1, DevId2, eventCode, 0x01, DevModel0, DevModel1, 0x7E};
     attempts = 4;
+    // This acknowledgement comes from the attached donor radio only. Remote
+    // detectors sound the interlink test signal but do not send test results.
     if (!sendAndExpect(announce, sizeof(announce), 0x41, 2, attempts)) {
       printCommandResult(CMD, F("timeout"));
       return;
@@ -429,9 +431,9 @@ void handleV2Command(char *json)
   char *name = parseCommandName(json);
   if (!name) { printV2Error(F("malformed_command")); return; }
   byte command = 0;
-  if (!strcmp(name, "co_test")) command = 0x31;
-  else if (!strcmp(name, "fire_test")) command = 0x32;
-  else if (!strcmp(name, "combined_test")) command = 0x33;
+  if (!strcmp(name, "sound_co")) command = 0x31;
+  else if (!strcmp(name, "sound_fire")) command = 0x32;
+  else if (!strcmp(name, "sound_combined")) command = 0x33;
   else if (!strcmp(name, "silence_co")) command = 0x36;
   else if (!strcmp(name, "silence_fire")) command = 0x37;
   else if (!strcmp(name, "pairing_state")) command = 0x38;
@@ -579,6 +581,7 @@ boolean decodeRadioEvent(RadioEvent &event)
   event.rawMessageType = spiBuffer[0];
   switch (event.rawMessageType) {
     case 0x70:
+      // Received from a detector when its physical test button is pressed.
       if (!requireFrameLength(9)) return false;
       event.kind = RADIO_EVENT_TEST;
       memcpy(event.device, &spiBuffer[1], 3);

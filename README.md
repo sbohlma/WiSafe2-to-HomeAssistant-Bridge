@@ -92,7 +92,7 @@ This WiSafe2-to-HA Bridge should work with any WiSafe2 alarm. But it has only be
 * W2-CO-10X
 
 With this project, via Home Assistant, I am able to receive notifications when:
-* An alarm is tested (including the type and result)
+* An alarm's physical test button is pressed (including the type and reported result)
   * heat, smoke, CO 
   * OK / Not-OK
 * An emergency event occurs (including the type of event)
@@ -103,9 +103,15 @@ With this project, via Home Assistant, I am able to receive notifications when:
 * The other alarms are complaining about a paired (but missing) device
 
 I can also send data back to the network, including:
-* Perform a Fire Test
-* Perform a CO Test
+* Sound the network's Fire test signal
+* Sound the network's CO test signal
 * Silence an alarm (takes a moment to propagate through the network, just like pressing the actual silence button on a physical alarm)
+
+The remote sound commands make the alarms sound, but the detectors do not send
+test results back to the bridge. They are not a substitute for testing each
+detector individually. A genuine detector test record is received only when
+that detector's own test button is pressed; each detector must therefore be
+tested separately.
 
 And I can perform some basic configuration, like check and enable network pairing mode.
 The bridge also produces a heart-beat, so we can be confident that it is communicating with HA.

@@ -79,6 +79,12 @@ boot.
 These messages report traffic received from the WiSafe2 network. They are not
 synthesized command results.
 
+A test event is received when the originating detector's physical test button
+is pressed. That detector transmits the event to the other WiSafe2 devices,
+including the bridge, and `device` identifies the detector whose button was
+pressed. Recording every detector therefore requires pressing each detector's
+button separately.
+
 ```json
 {"type":"event","device":"92BF1A","model":"ED08","event":"FIRE_TEST","result":"PASS","base":"ON","battery":"OK","raw_status":1}
 {"type":"event","device":"92BF1A","model":"7803","event":"CO_TEST","result":"FAIL","base":"ON","raw_status":0}
@@ -98,15 +104,15 @@ test and emergency subtypes are emitted as `TEST` and `EMERGENCY`.
 Commands are compact JSON lines:
 
 ```json
-{"command":"fire_test","id":17}
+{"command":"sound_fire","id":17}
 ```
 
 `id` is optional and, when present, is an integer from 0 through 65535.
 Supported commands are:
 
-- `co_test`
-- `fire_test`
-- `combined_test`
+- `sound_co`
+- `sound_fire`
+- `sound_combined`
 - `silence_co`
 - `silence_fire`
 - `pairing_state`
@@ -115,15 +121,20 @@ Supported commands are:
 
 Emergency simulation is deliberately not exposed.
 
-A successfully acknowledged/transmitted test request produces:
+A successfully accepted bridge-originated sound request produces:
 
 ```json
-{"type":"command_result","id":17,"command":"fire_test","result":"accepted"}
+{"type":"command_result","id":17,"command":"sound_fire","result":"accepted"}
 ```
 
-`accepted` does not mean a detector passed. Only a later, independently
-received `type: event` test message with `result: PASS` is a detector test
-result.
+`accepted` refers only to the attached donor radio and the transmission
+process. The remote detectors sound, but they do not reply to the bridge. It
+does not confirm RF reception, exercise an individual detector on demand, or
+mean any detector passed. There is no known command that remotely tests every
+detector and collects results.
+
+Only an independently received `type: event` test message caused by pressing a
+detector's own button is recorded as that detector's test report.
 
 General commands return `accepted` or `timeout`. `pairing_state` returns
 `paired`, `unpaired`, or `timeout`. `pairing` returns `accepted`, followed after
@@ -149,8 +160,8 @@ The first line is unsolicited. `>` is host input and `<` is firmware output.
 
 ```text
 < {"type":"bridge","event":"startup","firmware":"2.0.0","protocol":2,"radio":"ready"}<LF>
-> {"command":"fire_test","id":17}<LF>
-< {"type":"command_result","id":17,"command":"fire_test","result":"accepted"}<LF>
+> {"command":"sound_fire","id":17}<LF>
+< {"type":"command_result","id":17,"command":"sound_fire","result":"accepted"}<LF>
 < {"type":"event","device":"92BF1A","model":"ED08","event":"FIRE_TEST","result":"PASS","base":"ON","battery":"OK","raw_status":1}<LF>
 > {"command":"status","id":18}<LF>
 < {"type":"status","id":18,"firmware":"2.0.0","protocol":2,"uptime":123456,"radio":"ready","diagnostics":{"overflow":0,"malformed":0,"incomplete":0,"unknown":0,"command_timeout":0,"command_retry":0,"radio_reinit":0}}<LF>

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Correct detector test semantics
+
+- Stop the improved legacy firmware from emitting a synthetic detector `PASS`
+  after a bridge-originated sound command.
+- Rename V2 outgoing commands to `sound_fire`, `sound_co`, and
+  `sound_combined` so they cannot be mistaken for detector verification.
+- Document that genuine test events come from separately pressing each
+  detector's physical test button; remote signals produce no detector reply.
+
 ### Firmware split — legacy-only and V2-only
 
 - Restore `Arduino/FireAngelNano.ino` to the improved Stage 3 legacy protocol.
