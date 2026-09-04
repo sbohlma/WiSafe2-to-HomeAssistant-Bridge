@@ -1,7 +1,7 @@
 # WiSafe2-to-HA Bridge
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/C19HOP/WiSafe2-to-HomeAssistant-Bridge.svg)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/releases)
+[![GitHub Release](https://img.shields.io/github/release/videojedi/WiSafe2-to-HomeAssistant-Bridge.svg)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/releases)
 
 A Home Assistant integration for FireAngel WiSafe2 fire and CO alarms via a custom Arduino bridge.
 
