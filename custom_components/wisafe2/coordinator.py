@@ -10,6 +10,7 @@ from typing import Any
 import serial
 import serial.tools.list_ports
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -137,14 +138,19 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
         """Return last parsed message."""
         return self._last_message
 
-    async def async_start(self) -> bool:
+    async def async_start(self, entry: ConfigEntry) -> bool:
         """Start the serial connection and reader."""
         try:
             self._serial = await self.hass.async_add_executor_job(
                 self._open_serial_connection
             )
             self._running = True
-            self._read_task = self.hass.async_create_task(self._async_read_serial())
+            # Background task: not awaited by bootstrap, cancelled at shutdown
+            self._read_task = entry.async_create_background_task(
+                self.hass,
+                self._async_read_serial(),
+                name="wisafe2_serial_read",
+            )
             _LOGGER.info("WiSafe2 bridge connected on %s", self.serial_port)
             return True
         except Exception as err:
@@ -168,33 +174,49 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                 await self._read_task
             except asyncio.CancelledError:
                 pass
-        if self._serial:
-            await self.hass.async_add_executor_job(self._serial.close)
-            self._serial = None
+            self._read_task = None
+        self._close_serial()
         _LOGGER.info("WiSafe2 bridge disconnected")
+
+    def _close_serial(self) -> None:
+        """Close the serial port, releasing the device. Safe to call twice."""
+        if self._serial:
+            try:
+                self._serial.close()
+            except Exception as err:
+                _LOGGER.debug("Error closing serial port: %s", err)
+            self._serial = None
 
     async def _async_read_serial(self) -> None:
         """Read data from serial port."""
-        buffer = ""
-        while self._running:
-            try:
-                if self._serial and self._serial.in_waiting:
-                    data = await self.hass.async_add_executor_job(
-                        self._serial.readline
-                    )
-                    if data:
-                        try:
-                            line = data.decode("utf-8").strip()
-                            if line:
-                                self._raw_data = line
-                                await self._process_line(line)
-                        except UnicodeDecodeError:
-                            _LOGGER.debug("Failed to decode serial data")
-                else:
-                    await asyncio.sleep(0.1)
-            except Exception as err:
-                _LOGGER.error("Error reading serial: %s", err)
-                await asyncio.sleep(1)
+        try:
+            while self._running:
+                try:
+                    if self._serial and self._serial.in_waiting:
+                        data = await self.hass.async_add_executor_job(
+                            self._serial.readline
+                        )
+                        if data:
+                            try:
+                                line = data.decode("utf-8").strip()
+                                if line:
+                                    self._raw_data = line
+                                    await self._process_line(line)
+                            except UnicodeDecodeError:
+                                _LOGGER.debug("Failed to decode serial data")
+                    else:
+                        await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    _LOGGER.error("Error reading serial: %s", err)
+                    await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            # Release the port even if cancelled outside async_stop
+            # (e.g. HA cancels background tasks at shutdown)
+            self._running = False
+            self._close_serial()
+            raise
 
     async def _process_line(self, line: str) -> None:
         """Process a line of data from the bridge."""

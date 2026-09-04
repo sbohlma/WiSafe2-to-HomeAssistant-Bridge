@@ -5,8 +5,8 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .const import (
@@ -39,8 +39,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # Start serial connection
-    if not await coordinator.async_start():
+    if not await coordinator.async_start(entry):
         return False
+
+    # Close the serial port cleanly when HA stops (unload is not
+    # called at shutdown, and a lingering reader/open port stalls
+    # the Supervisor stop and dirties the recorder DB)
+    async def _async_shutdown(event: Event) -> None:
+        await coordinator.async_stop()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_shutdown)
+    )
 
     # Add configured devices
     devices = entry.options.get("devices", [])
