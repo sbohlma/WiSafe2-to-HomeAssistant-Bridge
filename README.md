@@ -61,11 +61,13 @@ The integration provides:
 **Sensors:**
 - Bridge status (Online/Offline)
 - Last message received
-- Per-device battery status
-- Per-device base status (attached/removed)
+- Per-device battery status (OK/LOW) with a "Battery Last Updated" timestamp
+- Per-device base status (ON/OFF) with a "Base Last Updated" timestamp
 - Per-device last event
 - Per-device test results
 - Per-device last seen timestamp
+
+Alarms only report battery and base status when they send a message (a test, a status report, an emergency), which can be days apart. The last known value is kept across Home Assistant restarts instead of resetting to "unknown", and the matching "Last Updated" sensor shows when the alarm actually reported it.
 
 **Binary Sensors:**
 - Bridge connectivity

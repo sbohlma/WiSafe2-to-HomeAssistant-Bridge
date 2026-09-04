@@ -52,7 +52,9 @@ class WiSafe2Device:
         self.device_type: str | None = None
         self.last_seen: datetime | None = None
         self.battery_status: str = "unknown"
+        self.battery_updated: datetime | None = None
         self.base_status: str = "unknown"
+        self.base_updated: datetime | None = None
         self.last_event: str | None = None
         self.last_test_result: str | None = None
         self.is_online: bool = True
@@ -68,15 +70,35 @@ class WiSafe2Device:
 
         if "battery" in data:
             self.battery_status = data["battery"]
+            self.battery_updated = self.last_seen
 
         if "base" in data:
             self.base_status = data["base"]
+            self.base_updated = self.last_seen
 
         if "event" in data:
             self.last_event = data["event"]
 
         if "test_result" in data:
             self.last_test_result = data["test_result"]
+
+    # Arduino sends base "ON"/"OFF"/"MISSING" and battery "OK"/"LOW"/"MISSING".
+    # The older spellings are kept so nothing breaks if the firmware changes.
+
+    @property
+    def is_on_base(self) -> bool:
+        """Return True if the alarm is reported as mounted on its base."""
+        return self.base_status.lower() in ("on", "attached", "on_base")
+
+    @property
+    def is_off_base(self) -> bool:
+        """Return True if the alarm is reported as removed from its base."""
+        return self.base_status.lower() in ("off", "removed", "off_base")
+
+    @property
+    def is_battery_low(self) -> bool:
+        """Return True if the alarm reports a low battery."""
+        return self.battery_status.lower() == "low"
 
 
 class WiSafe2Coordinator(DataUpdateCoordinator):
@@ -365,7 +387,9 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                     "model_id": device.model_id,
                     "device_type": device.device_type,
                     "battery_status": device.battery_status,
+                    "battery_updated": device.battery_updated.isoformat() if device.battery_updated else None,
                     "base_status": device.base_status,
+                    "base_updated": device.base_updated.isoformat() if device.base_updated else None,
                     "last_event": device.last_event,
                     "last_test_result": device.last_test_result,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,

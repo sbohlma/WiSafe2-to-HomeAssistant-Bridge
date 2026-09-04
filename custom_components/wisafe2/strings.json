@@ -109,8 +109,14 @@
       "battery": {
         "name": "Battery"
       },
+      "battery_last_updated": {
+        "name": "Battery Last Updated"
+      },
       "base_status": {
         "name": "Base Status"
+      },
+      "base_last_updated": {
+        "name": "Base Last Updated"
       },
       "last_event": {
         "name": "Last Event"
