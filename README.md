@@ -44,6 +44,16 @@ Before installing the integration, you need to build the hardware bridge. See th
 5. Add your alarm devices with their 6-character hex IDs
 6. Complete the setup
 
+### Changing the serial port
+
+If the bridge moves to a different USB port (e.g. `/dev/ttyUSB0` becomes `/dev/ttyUSB1`), you don't need to remove and re-add the integration:
+
+1. Go to **Settings** → **Devices & Services** → **WiSafe2 FireAngel Bridge**
+2. Open the **⋮** menu on the integration entry and choose **Reconfigure**
+3. Select the new serial port (and baud rate, if needed) and submit
+
+The integration reloads automatically on the new port. Your configured alarm devices are kept.
+
 ### Features
 
 The integration provides:
