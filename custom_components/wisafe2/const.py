@@ -25,8 +25,8 @@ DEVICE_MODELS = {
 # extracted from W2-MM Mesh Monitor Software:
     "E702": {"name": "WSM-1", "type": DEVICE_TYPE_SMOKE, "description": "AC smoke alarm"},
     "1103": {"name": "WST-630", "type": DEVICE_TYPE_COMBINED, "description": "Smoke/Strobe Unit"},
-    "7803": {"name": "W2-CO-10X #1", "type": DEVICE_TYPE_CO, "description": "Carbon monoxide alarm"},
-    "8B03": {"name": "W2-SVP-630 #1", "type": DEVICE_TYPE_STROBE, "description": "Strobe/visual alarm"},
+    "7803": {"name": "W2-CO-10X", "type": DEVICE_TYPE_CO, "description": "Carbon monoxide alarm"},
+    "8B03": {"name": "W2-SVP-630", "type": DEVICE_TYPE_STROBE, "description": "Strobe/visual alarm"},
     "A203": {"name": "W2-LFS-630", "type": DEVICE_TYPE_SIREN, "description": "Low frequency sounder"},
     "FE03": {"name": "IFG-100", "type": DEVICE_TYPE_UNKNOWN, "description": "IFG device"},
     "1104": {"name": "WHT-630", "type": DEVICE_TYPE_HEAT, "description": "Heat alarm"},
@@ -35,12 +35,12 @@ DEVICE_MODELS = {
     "4504": {"name": "W2-TSL", "type": DEVICE_TYPE_UNKNOWN, "description": "TSL device"},
     "7C04": {"name": "ST-630-DE", "type": DEVICE_TYPE_SMOKE, "description": "Smoke alarm"},
     "8504": {"name": "WETA-10X", "type": DEVICE_TYPE_WATER, "description": "Water/leak alarm"},
-    "C304": {"name": "W2-SVP-630 #2", "type": DEVICE_TYPE_STROBE, "description": "Strobe/visual alarm"},
+    "C304": {"name": "W2-SVP-630", "type": DEVICE_TYPE_STROBE, "description": "Strobe/visual alarm"},
 # to verify:
-    "0301": {"name": "W2-CO-10X #2", "type": DEVICE_TYPE_CO, "description": "Carbon Monoxide Alarm"},
+    "0301": {"name": "W2-CO-10X", "type": DEVICE_TYPE_CO, "description": "Carbon Monoxide Alarm"},
     "0401": {"name": "FP2620W2", "type": DEVICE_TYPE_SMOKE, "description": "Smoke Alarm"},
     "0501": {"name": "FP1720W2", "type": DEVICE_TYPE_HEAT, "description": "Heat Alarm"},
-    "0601": {"name": "W2-SVP-630 #3", "type": DEVICE_TYPE_STROBE, "description": "Strobe Unit"},
+    "0601": {"name": "W2-SVP-630", "type": DEVICE_TYPE_STROBE, "description": "Strobe Unit"},
 }
 
 # Event types from radio
