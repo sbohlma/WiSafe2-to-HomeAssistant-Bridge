@@ -1,15 +1,15 @@
 # WiSafe2-to-HA Bridge
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/C19HOP/WiSafe2-to-HomeAssistant-Bridge.svg)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/releases)
+[![GitHub Release](https://img.shields.io/github/release/videojedi/WiSafe2-to-HomeAssistant-Bridge.svg)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/releases)
 
 A Home Assistant integration for FireAngel WiSafe2 fire and CO alarms via a custom Arduino bridge.
 
 ## Quick Links
-- [Arduino Sketch](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
-- [Enclosure](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
-- [PCB (easyEDA)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
-- [HomeAssistant Configuration (Legacy YAML)](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA)
+- [Arduino Sketch](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
+- [Enclosure](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
+- [PCB (easyEDA)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
+- [HomeAssistant Configuration (Legacy YAML)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA)
 
 ---
 
@@ -23,7 +23,7 @@ Before installing the integration, you need to build the hardware bridge. See th
 1. Open HACS in Home Assistant
 2. Click the three dots in the top right corner
 3. Select "Custom repositories"
-4. Add this repository URL: `https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge`
+4. Add this repository URL: `https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge`
 5. Select "Integration" as the category
 6. Click "Add"
 7. Search for "WiSafe2" in HACS and install it
@@ -31,7 +31,7 @@ Before installing the integration, you need to build the hardware bridge. See th
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/releases)
 2. Copy the `custom_components/wisafe2` folder to your Home Assistant `config/custom_components/` directory
 3. Restart Home Assistant
 
@@ -44,6 +44,16 @@ Before installing the integration, you need to build the hardware bridge. See th
 5. Add your alarm devices with their 6-character hex IDs
 6. Complete the setup
 
+### Changing the serial port
+
+If the bridge moves to a different USB port (e.g. `/dev/ttyUSB0` becomes `/dev/ttyUSB1`), you don't need to remove and re-add the integration:
+
+1. Go to **Settings** → **Devices & Services** → **WiSafe2 FireAngel Bridge**
+2. Open the **⋮** menu on the integration entry and choose **Reconfigure**
+3. Select the new serial port (and baud rate, if needed) and submit
+
+The integration reloads automatically on the new port. Your configured alarm devices are kept.
+
 ### Features
 
 The integration provides:
@@ -51,11 +61,13 @@ The integration provides:
 **Sensors:**
 - Bridge status (Online/Offline)
 - Last message received
-- Per-device battery status
-- Per-device base status (attached/removed)
+- Per-device battery status (OK/LOW) with a "Battery Last Updated" timestamp
+- Per-device base status (ON/OFF) with a "Base Last Updated" timestamp
 - Per-device last event
 - Per-device test results
 - Per-device last seen timestamp
+
+Alarms only report battery and base status when they send a message (a test, a status report, an emergency), which can be days apart. The last known value is kept across Home Assistant restarts instead of resetting to "unknown", and the matching "Last Updated" sensor shows when the alarm actually reported it.
 
 **Binary Sensors:**
 - Bridge connectivity
@@ -114,7 +126,7 @@ automation:
 
 ## Legacy YAML Configuration
 
-If you prefer the original YAML-based setup (without the GUI integration), see the [HA folder](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA) for configuration examples.
+If you prefer the original YAML-based setup (without the GUI integration), see the [HA folder](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA) for configuration examples.
 
 ---
 
@@ -135,18 +147,18 @@ Even worse, after leaving the gateway completely unplugged for almost a year, th
 I don't know what these "complex algorithms" are, but they are certainly not "real time"! The fact that they've concluded "me and my family are safe" after being offline for 9 months is very concerning.  
 I'm just glad I found this out from testing, before putting any faith in the solution.
 
-![App after 9 months offline](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/FireAngelProConnectedGateway/FireAngelApp.png)
+![App after 9 months offline](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/FireAngelProConnectedGateway/FireAngelApp.png)
 
 So after being bitterly disappointed with the FireAngel Gateway (and not minding if I destroyed it), my next step was to attach it to a debugger, to see exactly what it was doing (with the mindset of intercepting its comms to create a local HA integration).
 I could see some JSON state changes being sent to an AWS server in Frankfurt. But I found the messages were very slow to report, and even worse was that it stopped updating locally if the internet connection went down. 
 
 If you want to attach a serial debug logger to a Gateway yourself, then you can use a 3.3v USB-to-serial adapter, and attach GND-to-GND and TX-to-RX
  
-![Gateway Debug Pins](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/FireAngelProConnectedGateway/Gateway_debug_02.jpg)
+![Gateway Debug Pins](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/FireAngelProConnectedGateway/Gateway_debug_02.jpg)
 
 And if you're interested in seeing the debug log I trapped from my gateway, then you can check it out here:
 
-[GitHub - FireAngel Pro Connected Gateway debug investigation](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/FireAngelProConnectedGateway)
+[GitHub - FireAngel Pro Connected Gateway debug investigation](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/tree/master/FireAngelProConnectedGateway)
 
 ## OK. The FireAngel Gateway is bad. So what's next?
 
@@ -158,12 +170,12 @@ After spending some time testing different events and configurations , I eventua
 
 If you're interested in the details of the SPI communication, then the link below shows what I observed:
 
-[GitHub - WiSafeCommunicationAnalysis](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/tree/master/WiSafeCommunicationAnalysis)
+[GitHub - WiSafeCommunicationAnalysis](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/tree/master/WiSafeCommunicationAnalysis)
 
 Here's the radio hooked up to a logic analyser:
 
-![On the bench](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/reverse-engineering%20wi-safe2%20radio%202.jpg)
-![On the bench](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/WiSafeCommunicationAnalysis/PulseViewCaptures/example.png)
+![On the bench](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/reverse-engineering%20wi-safe2%20radio%202.jpg)
+![On the bench](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/WiSafeCommunicationAnalysis/PulseViewCaptures/example.png)
 
 With the the communication sussed out, the next thing was to build a driver for the radio, to allow Home Assistant to communicate with it over USB. This was done using an Arduino Nano. 
 
@@ -172,7 +184,7 @@ I built this bridge using an Arduino Nano, as opposed to an ESP8266 because:
 * I liked the reliability of a simple, direct USB connection (no dependency on the wifi network)
 * I needed to use SPI slave mode (the radio is designed to be the master)... The ESP8266 Arduino libraries only support SPI as a master
 
-![Prototype](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/my%20gateway.jpg)
+![Prototype](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/my%20gateway.jpg)
 
 
 ## Stop!
@@ -192,7 +204,7 @@ So here's the explanation of how I bridged my network of FireAngel WiSafe2 alarm
 
 With this WiSafe2-to-HA Bridge, if it's all configured properly in HomeAssistant, you'll be able to have voice alerts in your home, telling you which room the emergency is in... Which is something FireAngel's Gateway solution doesn't offer. Yes; all the alarms beep. But they don't speak where the problem originated from.
 
-![HA LoveLace](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/HA/HA-lovelace.png)
+![HA LoveLace](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/HA/HA-lovelace.png)
 
 This WiSafe2-to-HA Bridge should work with any WiSafe2 alarm. But it has only been tested with the devices I actually have, which are:
 * FP2620W2
@@ -223,10 +235,10 @@ The bridge also produces a heart-beat, so we can be confident that it is communi
 I highly recommend that you configure your Home Assistant instance to use Google Home / Amazon Alexa for TTS & that you have the Mobile Phone Companion App, working over the internet for remote phone notifications.
 
 Here's what the notifications look like on my phone:
-![HA Notification](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/HA/HA%20App%20notifications.png)
+![HA Notification](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/HA/HA%20App%20notifications.png)
 
 And here's a video of the TTS notifications working through my Google Assistant speakers: 
-[![Video of my Google Home announcing an event](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/HA/ha-fireangel-googlehome.png)](https://youtu.be/Ph-9fv3ursU)
+[![Video of my Google Home announcing an event](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/HA/ha-fireangel-googlehome.png)](https://youtu.be/Ph-9fv3ursU)
 
 
 ## Shopping List
@@ -253,13 +265,13 @@ Just use a regular Arduino Nano (or clone). Make sure it is 5v @ 16MHz.
 
 ### PCB
 Here's a link to the PCB I made for this:
-* [JSON file (for loading into easy-EDA):](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
-* [Gerber files (for ordering direct from JLCPCB, etc):](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/Gerber_EASYEDA-WiSafe2HA-bridge-PCB.zip)
+* [JSON file (for loading into easy-EDA):](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
+* [Gerber files (for ordering direct from JLCPCB, etc):](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/Gerber_EASYEDA-WiSafe2HA-bridge-PCB.zip)
 
 You can load the JSON into easyEDA and order some PCBs using the built-in JLCPCB ordering utility. It cost me a couple of USD, plus delivery.
 Or in case it's easier for you, you can use the Gerber files to place the order yourself. 
 
-![PCB design](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/pcb01.png)
+![PCB design](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/pcb01.png)
 
 ### Level Converter
 You need 2x 4ch level converters. Just search ebay for "4ch Logic Level Shifter Converter Module 5V to 3.3V"
@@ -272,15 +284,15 @@ Search ebay for 2.54mm male header. You only need 2 pins for attaching the jumpe
 If this is a problem, you can always just bridge the contacts together with solder.
 
 ### Enclosure
-Here's a link to the STL file for the enclosure I made: [Enclosure](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
+Here's a link to the STL file for the enclosure I made: [Enclosure](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
 
-![Enclosure-Open](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/enclosure-open.jpg)
-![Enclosure-Closed](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/enclosure-closed.jpg)
+![Enclosure-Open](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/enclosure-open.jpg)
+![Enclosure-Closed](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/enclosure-closed.jpg)
 
 ## Building the project
 Program the Arduino Nano, using the sketch code provided. You shouldn't need to change anything.
 
-[Arduino Sketch](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
+[Arduino Sketch](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
 
 Although there are some variables declared for the 'EMBEDDED DEVICE ID' and 'MODEL', which you can change if you like. Basically, the radio thinks it's connected to an alarm. The parameters we set here define the type of alarm that the Nano will simulate.
 This is used when we initiate a test from HA, or when the alarms are silenced.
@@ -289,12 +301,12 @@ The information here just needs to be unique on your network. Chances are you ca
 The only library dependency is the SPI library, which should be installed into the Arduino IDE by default.
 If you encounter any trouble uploading the sketch, try setting the processor to "ATmega328P (old bootloader)"; I found this is nearly always required if using an Arduino Nano 'compatible'.
 
-![Enclosure-Closed](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/Nano%20bootloader.png)
+![Enclosure-Closed](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/Nano%20bootloader.png)
 
 When you're ready to solder all the components to the PCB, you should find the layout is self-explanatory. The PCB silk-screen shows the correct way to insert the level converters and the Arduino Nano.
 The WiSafe2 radio can only be soldered in one way.
 
-![PCB board](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/pcb02.png)
+![PCB board](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/pcb02.png)
 
 The antenna is just a a wire connected to the 'ANT' pin. It should be cut to 17.27cm (1/2 wavelength), or 8.64cm (1/4 wavelength).
 
@@ -306,8 +318,8 @@ Optional: If your radio has a battery, you can remove it and power the radio fro
 
 If you do remove the battery from a radio which was originally battery powered, you'll need to bridge the 3.3v pin to the battery +ve terminal. See these images:
 
-![PCB board](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/battery-remove-bridge/battery-remove-bridge-1.jpg)
-![PCB board](https://github.com/C19HOP/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/battery-remove-bridge/battery-remove-bridge-2.jpg)
+![PCB board](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/battery-remove-bridge/battery-remove-bridge-1.jpg)
+![PCB board](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/build/battery-remove-bridge/battery-remove-bridge-2.jpg)
 
 ## Configuring the hardware
 There is a jumper which toggles the driver mode. For normal operation with HomeAssistant, the jumper needs to be on.

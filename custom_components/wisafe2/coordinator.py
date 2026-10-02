@@ -10,8 +10,10 @@ from typing import Any
 import serial
 import serial.tools.list_ports
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -50,7 +52,9 @@ class WiSafe2Device:
         self.device_type: str | None = None
         self.last_seen: datetime | None = None
         self.battery_status: str = "unknown"
+        self.battery_updated: datetime | None = None
         self.base_status: str = "unknown"
+        self.base_updated: datetime | None = None
         self.last_event: str | None = None
         self.last_test_result: str | None = None
         self.is_online: bool = True
@@ -62,19 +66,39 @@ class WiSafe2Device:
 
     def update_from_message(self, data: dict[str, Any]) -> None:
         """Update device state from a parsed message."""
-        self.last_seen = datetime.now()
+        self.last_seen = dt_util.utcnow()
 
         if "battery" in data:
             self.battery_status = data["battery"]
+            self.battery_updated = self.last_seen
 
         if "base" in data:
             self.base_status = data["base"]
+            self.base_updated = self.last_seen
 
         if "event" in data:
             self.last_event = data["event"]
 
         if "test_result" in data:
             self.last_test_result = data["test_result"]
+
+    # Arduino sends base "ON"/"OFF"/"MISSING" and battery "OK"/"LOW"/"MISSING".
+    # The older spellings are kept so nothing breaks if the firmware changes.
+
+    @property
+    def is_on_base(self) -> bool:
+        """Return True if the alarm is reported as mounted on its base."""
+        return self.base_status.lower() in ("on", "attached", "on_base")
+
+    @property
+    def is_off_base(self) -> bool:
+        """Return True if the alarm is reported as removed from its base."""
+        return self.base_status.lower() in ("off", "removed", "off_base")
+
+    @property
+    def is_battery_low(self) -> bool:
+        """Return True if the alarm reports a low battery."""
+        return self.battery_status.lower() == "low"
 
 
 class WiSafe2Coordinator(DataUpdateCoordinator):
@@ -114,7 +138,7 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
         """Return if bridge is online."""
         if self._last_heartbeat is None:
             return False
-        return (datetime.now() - self._last_heartbeat).total_seconds() < HEARTBEAT_TIMEOUT
+        return (dt_util.utcnow() - self._last_heartbeat).total_seconds() < HEARTBEAT_TIMEOUT
 
     @property
     def devices(self) -> dict[str, WiSafe2Device]:
@@ -136,14 +160,19 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
         """Return last parsed message."""
         return self._last_message
 
-    async def async_start(self) -> bool:
+    async def async_start(self, entry: ConfigEntry) -> bool:
         """Start the serial connection and reader."""
         try:
             self._serial = await self.hass.async_add_executor_job(
                 self._open_serial_connection
             )
             self._running = True
-            self._read_task = self.hass.async_create_task(self._async_read_serial())
+            # Background task: not awaited by bootstrap, cancelled at shutdown
+            self._read_task = entry.async_create_background_task(
+                self.hass,
+                self._async_read_serial(),
+                name="wisafe2_serial_read",
+            )
             _LOGGER.info("WiSafe2 bridge connected on %s", self.serial_port)
             return True
         except Exception as err:
@@ -167,33 +196,49 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                 await self._read_task
             except asyncio.CancelledError:
                 pass
-        if self._serial:
-            await self.hass.async_add_executor_job(self._serial.close)
-            self._serial = None
+            self._read_task = None
+        self._close_serial()
         _LOGGER.info("WiSafe2 bridge disconnected")
+
+    def _close_serial(self) -> None:
+        """Close the serial port, releasing the device. Safe to call twice."""
+        if self._serial:
+            try:
+                self._serial.close()
+            except Exception as err:
+                _LOGGER.debug("Error closing serial port: %s", err)
+            self._serial = None
 
     async def _async_read_serial(self) -> None:
         """Read data from serial port."""
-        buffer = ""
-        while self._running:
-            try:
-                if self._serial and self._serial.in_waiting:
-                    data = await self.hass.async_add_executor_job(
-                        self._serial.readline
-                    )
-                    if data:
-                        try:
-                            line = data.decode("utf-8").strip()
-                            if line:
-                                self._raw_data = line
-                                await self._process_line(line)
-                        except UnicodeDecodeError:
-                            _LOGGER.debug("Failed to decode serial data")
-                else:
-                    await asyncio.sleep(0.1)
-            except Exception as err:
-                _LOGGER.error("Error reading serial: %s", err)
-                await asyncio.sleep(1)
+        try:
+            while self._running:
+                try:
+                    if self._serial and self._serial.in_waiting:
+                        data = await self.hass.async_add_executor_job(
+                            self._serial.readline
+                        )
+                        if data:
+                            try:
+                                line = data.decode("utf-8").strip()
+                                if line:
+                                    self._raw_data = line
+                                    await self._process_line(line)
+                            except UnicodeDecodeError:
+                                _LOGGER.debug("Failed to decode serial data")
+                    else:
+                        await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    _LOGGER.error("Error reading serial: %s", err)
+                    await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            # Release the port even if cancelled outside async_stop
+            # (e.g. HA cancels background tasks at shutdown)
+            self._running = False
+            self._close_serial()
+            raise
 
     async def _process_line(self, line: str) -> None:
         """Process a line of data from the bridge."""
@@ -222,7 +267,7 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
 
         # Check for heartbeat (Arduino uses "heartBeat" with capital B)
         if "heartBeat" in data:
-            self._last_heartbeat = datetime.now()
+            self._last_heartbeat = dt_util.utcnow()
             self._bridge_online = True
             self._bridge_device.last_seen = self._last_heartbeat
             self._bridge_device.is_online = True
@@ -342,7 +387,9 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                     "model_id": device.model_id,
                     "device_type": device.device_type,
                     "battery_status": device.battery_status,
+                    "battery_updated": device.battery_updated.isoformat() if device.battery_updated else None,
                     "base_status": device.base_status,
+                    "base_updated": device.base_updated.isoformat() if device.base_updated else None,
                     "last_event": device.last_event,
                     "last_test_result": device.last_test_result,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,

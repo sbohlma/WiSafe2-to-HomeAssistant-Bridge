@@ -150,22 +150,20 @@ class WiSafe2DeviceProblemSensor(WiSafe2DeviceBinarySensorBase):
     def is_on(self) -> bool:
         """Return true if device has a problem."""
         # Problem if low battery, off base, or failed test
-        battery_low = self._device.battery_status.lower() == "low"
-        off_base = self._device.base_status.lower() in ["removed", "off_base"]
-        test_failed = (
+        test_failed = bool(
             self._device.last_test_result
             and "fail" in self._device.last_test_result.lower()
         )
-        return battery_low or off_base or test_failed
+        return self._device.is_battery_low or self._device.is_off_base or test_failed
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
         attrs = super().extra_state_attributes
         problems = []
-        if self._device.battery_status.lower() == "low":
+        if self._device.is_battery_low:
             problems.append("Low Battery")
-        if self._device.base_status.lower() in ["removed", "off_base"]:
+        if self._device.is_off_base:
             problems.append("Off Base")
         if (
             self._device.last_test_result

@@ -81,6 +81,7 @@ PLATFORMS = ["sensor", "binary_sensor", "button"]
 ATTR_DEVICE_ID = "device_id"
 ATTR_MODEL = "model"
 ATTR_LAST_SEEN = "last_seen"
+ATTR_LAST_UPDATED = "last_updated"
 ATTR_EVENT_TYPE = "event_type"
 ATTR_TEST_RESULT = "test_result"
 ATTR_BATTERY_STATUS = "battery_status"

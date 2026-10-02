@@ -49,6 +49,48 @@ async def validate_serial_port(hass: HomeAssistant, port: str, baud_rate: int) -
         raise CannotConnect from err
 
 
+def build_connection_schema(
+    ports: list[str],
+    *,
+    current_port: str | None = None,
+    current_baud: int = DEFAULT_BAUD_RATE,
+) -> vol.Schema:
+    """Build the serial connection form schema (shared by setup and reconfigure)."""
+    # Keep the configured port selectable even if it is not enumerated right
+    # now (e.g. the bridge is temporarily unplugged) so the form can prefill it
+    if current_port and current_port not in ports:
+        ports = [current_port, *ports]
+
+    port_options = [
+        selector.SelectOptionDict(value=port, label=port) for port in ports
+    ]
+
+    port_field = (
+        vol.Required(CONF_SERIAL_PORT, default=current_port)
+        if current_port
+        else vol.Required(CONF_SERIAL_PORT)
+    )
+
+    return vol.Schema(
+        {
+            port_field: selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=port_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(CONF_BAUD_RATE, default=current_baud): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=9600,
+                    max=115200,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+        }
+    )
+
+
 class WiSafe2ConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for WiSafe2 FireAngel Bridge."""
 
@@ -72,12 +114,10 @@ class WiSafe2ConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="no_serial_ports")
 
         if user_input is not None:
+            port = user_input[CONF_SERIAL_PORT]
+            baud_rate = int(user_input.get(CONF_BAUD_RATE, DEFAULT_BAUD_RATE))
             try:
-                await validate_serial_port(
-                    self.hass,
-                    user_input[CONF_SERIAL_PORT],
-                    user_input.get(CONF_BAUD_RATE, DEFAULT_BAUD_RATE),
-                )
+                await validate_serial_port(self.hass, port, baud_rate)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception:
@@ -85,40 +125,68 @@ class WiSafe2ConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
             else:
                 # Check if already configured
-                await self.async_set_unique_id(user_input[CONF_SERIAL_PORT])
+                await self.async_set_unique_id(port)
                 self._abort_if_unique_id_configured()
 
-                self._data = user_input
+                self._data = {CONF_SERIAL_PORT: port, CONF_BAUD_RATE: baud_rate}
                 return await self.async_step_devices()
-
-        # Build port options
-        port_options = [
-            selector.SelectOptionDict(value=port, label=port)
-            for port in ports
-        ]
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_SERIAL_PORT): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=port_options,
-                            mode=selector.SelectSelectorMode.DROPDOWN,
-                        )
-                    ),
-                    vol.Optional(
-                        CONF_BAUD_RATE, default=DEFAULT_BAUD_RATE
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=9600,
-                            max=115200,
-                            step=1,
-                            mode=selector.NumberSelectorMode.BOX,
-                        )
-                    ),
-                }
+            data_schema=build_connection_schema(ports),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Change the serial port / baud rate of an existing entry.
+
+        Reached from the integration entry's menu -> Reconfigure. Devices
+        stored in the entry options are untouched; only the connection
+        settings change, then the entry is reloaded.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        current_port = entry.data[CONF_SERIAL_PORT]
+        current_baud = int(entry.data.get(CONF_BAUD_RATE, DEFAULT_BAUD_RATE))
+        ports = await self.hass.async_add_executor_job(get_serial_ports)
+
+        if user_input is not None:
+            port = user_input[CONF_SERIAL_PORT]
+            baud_rate = int(user_input.get(CONF_BAUD_RATE, DEFAULT_BAUD_RATE))
+
+            # Refuse to take over a port that another entry already uses.
+            # Skipped when the port is unchanged, otherwise this entry would
+            # match itself and abort.
+            if port != entry.unique_id:
+                await self.async_set_unique_id(port)
+                self._abort_if_unique_id_configured()
+
+            try:
+                await validate_serial_port(self.hass, port, baud_rate)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    unique_id=port,
+                    data_updates={
+                        CONF_SERIAL_PORT: port,
+                        CONF_BAUD_RATE: baud_rate,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=build_connection_schema(
+                ports, current_port=current_port, current_baud=current_baud
             ),
+            description_placeholders={"current_port": current_port},
             errors=errors,
         )
 

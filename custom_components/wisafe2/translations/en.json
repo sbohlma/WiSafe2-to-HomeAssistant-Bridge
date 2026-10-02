@@ -13,6 +13,18 @@
           "baud_rate": "Serial communication speed (default: 115200)"
         }
       },
+      "reconfigure": {
+        "title": "Reconfigure WiSafe2 Bridge Connection",
+        "description": "The bridge is currently configured on {current_port}.\n\nSelect the new serial port and baud rate. The integration will reload to apply the change; your configured alarm devices are kept.",
+        "data": {
+          "serial_port": "Serial Port",
+          "baud_rate": "Baud Rate"
+        },
+        "data_description": {
+          "serial_port": "The USB serial port where your WiSafe2 bridge is connected (e.g., /dev/ttyUSB0)",
+          "baud_rate": "Serial communication speed (default: 115200)"
+        }
+      },
       "devices": {
         "title": "Configure Devices",
         "description": "You have configured {device_count} device(s).\n\n{device_list}\n\nWould you like to add another device?",
@@ -43,7 +55,8 @@
     },
     "abort": {
       "already_configured": "This serial port is already configured.",
-      "no_serial_ports": "No serial ports found. Please connect your WiSafe2 bridge and try again."
+      "no_serial_ports": "No serial ports found. Please connect your WiSafe2 bridge and try again.",
+      "reconfigure_successful": "Serial connection updated. The integration has been reloaded."
     }
   },
   "options": {
@@ -96,8 +109,14 @@
       "battery": {
         "name": "Battery"
       },
+      "battery_last_updated": {
+        "name": "Battery Last Updated"
+      },
       "base_status": {
         "name": "Base Status"
+      },
+      "base_last_updated": {
+        "name": "Base Last Updated"
       },
       "last_event": {
         "name": "Last Event"
