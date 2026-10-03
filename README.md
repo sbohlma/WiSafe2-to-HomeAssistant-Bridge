@@ -6,10 +6,13 @@
 A Home Assistant integration for FireAngel WiSafe2 fire and CO alarms via a custom Arduino bridge.
 
 ## Quick Links
-- [Arduino Sketch](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
-- [Enclosure](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
-- [PCB (easyEDA)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/PCB/WiSafe2HA-bridge-PCB.json)
-- [HomeAssistant Configuration (Legacy YAML)](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA)
+---
+- [Improved legacy firmware](Arduino/FireAngelNano.ino)
+- [V2-only firmware](Arduino-V2/FireAngelNanoV2.ino)
+- [Firmware compatibility guide](docs/firmware-variants.md)
+- [Enclosure](Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
+- [PCB (easyEDA)](PCB/WiSafe2HA-bridge-PCB.json)
+- [HomeAssistant Configuration (Legacy YAML)](HA)
 
 ---
 
@@ -128,8 +131,6 @@ automation:
 
 If you prefer the original YAML-based setup (without the GUI integration), see the [HA folder](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/tree/master/HA) for configuration examples.
 
----
-
 ## Project Background
 Like some others, I have some expired Google Nest Protects, which I wanted to replace with a cheaper / more-scalable alternative. But above all, I wanted to realise a trustworthy fire/CO alarm system, which integrates with HomeAssistant.
 
@@ -214,7 +215,7 @@ This WiSafe2-to-HA Bridge should work with any WiSafe2 alarm. But it has only be
 * W2-CO-10X
 
 With this project, via Home Assistant, I am able to receive notifications when:
-* An alarm is tested (including the type and result)
+* An alarm's physical test button is pressed (including the type and reported result)
   * heat, smoke, CO 
   * OK / Not-OK
 * An emergency event occurs (including the type of event)
@@ -225,9 +226,20 @@ With this project, via Home Assistant, I am able to receive notifications when:
 * The other alarms are complaining about a paired (but missing) device
 
 I can also send data back to the network, including:
-* Perform a Fire Test
-* Perform a CO Test
+* Sound the network's Fire test signal
+* Sound the network's CO test signal
 * Silence an alarm (takes a moment to propagate through the network, just like pressing the actual silence button on a physical alarm)
+
+The remote sound commands make the alarms sound, but the detectors do not send
+test results back to the bridge. They are not a substitute for testing each
+detector individually. A genuine detector test record is received only when
+that detector's own test button is pressed; each detector must therefore be
+tested separately.
+
+For compatibility, the legacy firmware emits a synthetic `PASS` against the
+bridge device ID after initiating a sound command. This records the bridge
+action only; it is not a response or test result from any detector. V2 reports
+the same action as a structured `command_result` with `result: accepted`.
 
 And I can perform some basic configuration, like check and enable network pairing mode.
 The bridge also produces a heart-beat, so we can be confident that it is communicating with HA.
@@ -290,15 +302,28 @@ Here's a link to the STL file for the enclosure I made: [Enclosure](https://gith
 ![Enclosure-Closed](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Enclosure/enclosure-closed.jpg)
 
 ## Building the project
-Program the Arduino Nano, using the sketch code provided. You shouldn't need to change anything.
+Program the Arduino Nano with one of the two firmware images:
 
-[Arduino Sketch](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/FireAngelNano.ino)
+* `Arduino/FireAngelNano.ino` is the improved legacy-only firmware and remains
+  compatible with the original serial protocol.
+* `Arduino-V2/FireAngelNanoV2.ino` is the V2-only newline-delimited JSON
+  firmware. It announces protocol 2 automatically during startup and requires
+  a V2-capable Home Assistant integration.
+
+The choice is made when flashing; neither firmware negotiates or switches to
+the other protocol at runtime. See
+[`docs/firmware-variants.md`](docs/firmware-variants.md) for the compatibility
+details. You shouldn't need to change the hardware or pin assignments.
+
+Both sketches require the repository's `libraries/WiSafeRadioCore` Arduino
+library. Copy it into your Arduino sketchbook's `libraries` directory before
+building in the IDE, or pass the repository `libraries` path to `arduino-cli`.
 
 Although there are some variables declared for the 'EMBEDDED DEVICE ID' and 'MODEL', which you can change if you like. Basically, the radio thinks it's connected to an alarm. The parameters we set here define the type of alarm that the Nano will simulate.
 This is used when we initiate a test from HA, or when the alarms are silenced.
 The information here just needs to be unique on your network. Chances are you can just leave it all alone.
 
-The only library dependency is the SPI library, which should be installed into the Arduino IDE by default.
+The remaining dependency is Arduino's SPI library, which is installed by default.
 If you encounter any trouble uploading the sketch, try setting the processor to "ATmega328P (old bootloader)"; I found this is nearly always required if using an Arduino Nano 'compatible'.
 
 ![Enclosure-Closed](https://github.com/videojedi/WiSafe2-to-HomeAssistant-Bridge/blob/master/Arduino/Nano%20bootloader.png)
@@ -983,5 +1008,3 @@ I also have the events configured as 'critical', so that my phone will make a so
       message: Warning! The {{ trigger.to_state.attributes.friendly_name }} has been
         reported as missing by other alarms in the network 
  ```
-
-
