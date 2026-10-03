@@ -10,6 +10,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -50,6 +51,36 @@ async def async_setup_entry(
             )
 
     async_add_entities(entities)
+
+    @callback
+    def async_add_device_binary_sensors(device: WiSafe2Device) -> None:
+        """Add binary sensors for a newly discovered device."""
+        entities = [
+            WiSafe2DeviceConnectivitySensor(coordinator, config_entry, device),
+            WiSafe2DeviceProblemSensor(coordinator, config_entry, device),
+        ]
+
+        # Add smoke sensor for smoke/heat devices
+        if device.device_type in [DEVICE_TYPE_SMOKE, DEVICE_TYPE_HEAT, None]:
+            entities.append(
+                WiSafe2DeviceSmokeSensor(coordinator, config_entry, device)
+            )
+
+        # Add CO sensor for CO devices
+        if device.device_type in [DEVICE_TYPE_CO, None]:
+            entities.append(
+                WiSafe2DeviceCOSensor(coordinator, config_entry, device)
+            )
+
+        async_add_entities(entities)
+
+    config_entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{DOMAIN}_device_added_{config_entry.entry_id}",
+            async_add_device_binary_sensors,
+        )
+    )
 
 
 class WiSafe2BridgeConnectivitySensor(CoordinatorEntity, BinarySensorEntity):

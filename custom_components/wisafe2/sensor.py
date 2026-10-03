@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -59,6 +60,25 @@ async def async_setup_entry(
         ])
 
     async_add_entities(entities)
+
+    @callback
+    def async_add_device_sensors(device: WiSafe2Device) -> None:
+        """Add sensors for a newly discovered device."""
+        async_add_entities([
+            WiSafe2DeviceBatterySensor(coordinator, config_entry, device),
+            WiSafe2DeviceBaseSensor(coordinator, config_entry, device),
+            WiSafe2DeviceEventSensor(coordinator, config_entry, device),
+            WiSafe2DeviceTestResultSensor(coordinator, config_entry, device),
+            WiSafe2DeviceLastSeenSensor(coordinator, config_entry, device),
+        ])
+
+    config_entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{DOMAIN}_device_added_{config_entry.entry_id}",
+            async_add_device_sensors,
+        )
+    )
 
 
 class WiSafe2BridgeStatusSensor(CoordinatorEntity, SensorEntity):

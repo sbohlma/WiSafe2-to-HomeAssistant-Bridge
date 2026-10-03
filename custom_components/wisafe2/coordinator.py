@@ -12,6 +12,8 @@ import serial.tools.list_ports
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -59,10 +61,12 @@ class WiSafe2Device:
         self.last_test_result: str | None = None
         self.is_online: bool = True
 
-        if model_id and model_id in DEVICE_MODELS:
-            model_info = DEVICE_MODELS[model_id]
-            self.name = model_info["name"]
-            self.device_type = model_info["type"]
+        if model_id:
+            model_id_upper = model_id.upper()
+            if model_id_upper in DEVICE_MODELS:
+                model_info = DEVICE_MODELS[model_id_upper]
+                self.name = model_info["name"]
+                self.device_type = model_info["type"]
 
     def update_from_message(self, data: dict[str, Any]) -> None:
         """Update device state from a parsed message."""
@@ -107,6 +111,7 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: ConfigEntry,
         serial_port: str,
         baud_rate: int,
     ) -> None:
@@ -117,6 +122,7 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=5),
         )
+        self.config_entry = config_entry
         self.serial_port = serial_port
         self.baud_rate = baud_rate
         self._serial: serial.Serial | None = None
@@ -127,6 +133,7 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
         self._running = False
         self._raw_data: str | None = None
         self._last_message: str | None = None
+        self._suppress_reload = False
 
         # Create bridge device
         self._bridge_device = WiSafe2Device("bridge", None)
@@ -282,7 +289,8 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
             device_id = device_id.lower()
 
             # Get or create device
-            if device_id not in self._devices:
+            is_new = device_id not in self._devices
+            if is_new:
                 model_id = data.get("model")
                 self._devices[device_id] = WiSafe2Device(device_id, model_id)
                 _LOGGER.info("Discovered new WiSafe2 device: %s", device_id)
@@ -292,7 +300,17 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
 
             # Update model if provided
             if data.get("model") and not device.model_id:
-                device.model_id = data.get("model")
+                model_id = data.get("model")
+                device.model_id = model_id
+                model_id_upper = model_id.upper()
+                if model_id_upper in DEVICE_MODELS:
+                    model_info = DEVICE_MODELS[model_id_upper]
+                    if not device.name or device.name == f"WiSafe2 Alarm {device_id}":
+                        device.name = model_info["name"]
+                    device.device_type = model_info["type"]
+
+            if is_new:
+                await self._async_auto_add_device(device_id, data.get("model"))
 
             # Handle event-based messages
             event = data.get("event", "")
@@ -460,7 +478,8 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
         """Manually add a device."""
         if device_id not in self._devices:
             device = WiSafe2Device(device_id, model_id)
-            device.name = name
+            if name:
+                device.name = name
             self._devices[device_id] = device
         else:
             device = self._devices[device_id]
@@ -468,4 +487,51 @@ class WiSafe2Coordinator(DataUpdateCoordinator):
                 device.name = name
             if model_id:
                 device.model_id = model_id
+                model_id_upper = model_id.upper()
+                if model_id_upper in DEVICE_MODELS:
+                    model_info = DEVICE_MODELS[model_id_upper]
+                    if not device.name or device.name == f"WiSafe2 Alarm {device_id}":
+                        device.name = name or model_info["name"]
+                    device.device_type = model_info["type"]
         return device
+
+    async def _async_auto_add_device(self, device_id: str, model_id: str | None) -> None:
+        """Auto-add a discovered device to config entry options and notify platforms."""
+        device = self._devices[device_id]
+        
+        # Register the device in the Home Assistant Device Registry
+        device_registry = dr.async_get(self.hass)
+        device_registry.async_get_or_create(
+            config_entry_id=self.config_entry.entry_id,
+            identifiers={(DOMAIN, device_id)},
+            manufacturer="FireAngel",
+            model=device.name or "Unknown Model",
+            name=device.name or f"WiSafe2 Alarm {device_id}",
+            via_device=(DOMAIN, "bridge"),
+        )
+        
+        # Dispatch signal to platforms to dynamically create entities
+        async_dispatcher_send(
+            self.hass,
+            f"{DOMAIN}_device_added_{self.config_entry.entry_id}",
+            device,
+        )
+        
+        # Save configured devices to entry options for persistence
+        current_devices = list(self.config_entry.options.get("devices", []))
+        if not any(d["device_id"] == device_id for d in current_devices):
+            new_device_config = {
+                "device_id": device_id,
+                "model": model_id,
+                "name": f"WiSafe2 Alarm {device_id}",
+            }
+            current_devices.append(new_device_config)
+            new_options = {**self.config_entry.options, "devices": current_devices}
+            
+            # Set suppress flag to prevent entry reload
+            self._suppress_reload = True
+            
+            # Update options
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, options=new_options
+            )

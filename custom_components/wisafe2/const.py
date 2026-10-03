@@ -20,7 +20,7 @@ DEVICE_TYPE_SIREN = "siren"
 DEVICE_TYPE_WATER = "water"
 DEVICE_TYPE_UNKNOWN = "unknown"
 
-# Device models mapping
+# Device models mapping (keys must be uppercase)
 DEVICE_MODELS = {
 # extracted from W2-MM Mesh Monitor Software:
     "E702": {"name": "WSM-1", "type": DEVICE_TYPE_SMOKE, "description": "AC smoke alarm"},
@@ -40,7 +40,12 @@ DEVICE_MODELS = {
     "0301": {"name": "W2-CO-10X", "type": DEVICE_TYPE_CO, "description": "Carbon Monoxide Alarm"},
     "0401": {"name": "FP2620W2", "type": DEVICE_TYPE_SMOKE, "description": "Smoke Alarm"},
     "0501": {"name": "FP1720W2", "type": DEVICE_TYPE_HEAT, "description": "Heat Alarm"},
+    "7401": {"name": "FP1720W2-R", "type": DEVICE_TYPE_HEAT, "description": "Heat Alarm"},
     "0601": {"name": "W2-SVP-630", "type": DEVICE_TYPE_STROBE, "description": "Strobe Unit"},
+    "E702": {"name": "FP2620W2", "type": DEVICE_TYPE_SMOKE, "description": "Smoke Alarm"},
+    "ED08": {"name": "FP2620W2", "type": DEVICE_TYPE_SMOKE, "description": "Smoke Alarm"},
+    "7803": {"name": "W2-CO-10X", "type": DEVICE_TYPE_CO, "description": "Carbon Monoxide Alarm"},
+    "C304": {"name": "W2-SVP-630", "type": DEVICE_TYPE_STROBE, "description": "Strobe Unit"},
 }
 
 # Event types from radio

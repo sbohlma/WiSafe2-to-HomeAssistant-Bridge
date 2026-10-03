@@ -34,6 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create coordinator
     coordinator = WiSafe2Coordinator(
         hass,
+        entry,
         entry.data[CONF_SERIAL_PORT],
         entry.data.get(CONF_BAUD_RATE, DEFAULT_BAUD_RATE),
     )
@@ -100,6 +101,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update options."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    if getattr(coordinator, "_suppress_reload", False):
+        coordinator._suppress_reload = False
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
