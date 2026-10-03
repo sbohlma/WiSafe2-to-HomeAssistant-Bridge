@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Firmware folder layout
+
+- Move all sketches into `Arduino-Firmware/` with matching sketch directories:
+  `FireAngelNanoLegacy/FireAngelNanoLegacy.ino` (was `Arduino/FireAngelNano.ino`),
+  `FireAngelNanoV2/FireAngelNanoV2.ino` (was `Arduino-V2/FireAngelNanoV2.ino`) and
+  `FireAngelNanoDebug/FireAngelNanoDebug.ino` (was `Arduino-Debug/FireAngelNano.ino`).
+
+### V2 emergency commands (firmware 2.1.0)
+
+- Add `co_emergency` and `fire_emergency` to the V2 firmware; they send the
+  same `0x50` alarm frames as legacy commands `4~`/`5~`.
+- Add `co_emergency_stop` and `fire_emergency_stop`, which send the `0x51`
+  alarm stop known from FireAngel's Mesh Monitor software (not yet verified).
+
 ### Reviewer hardening
 
 - Extract duplicated SPI, transaction, watchdog-wait, diagnostic, and decoder

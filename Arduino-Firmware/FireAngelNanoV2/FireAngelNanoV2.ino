@@ -7,7 +7,7 @@ boolean serialFrameOverflow = false;
 boolean pairingInProgress = false;
 boolean activeCommandHasId = false;
 unsigned int activeCommandId = 0;
-const char FIRMWARE_VERSION[] = "2.0.0";
+const char FIRMWARE_VERSION[] = "2.1.0";
 const byte SERIAL_PROTOCOL_VERSION = 2;
 
 //------------------------EMBEDDED DEVICE INFO GOES HERE-------------------------------
@@ -101,6 +101,8 @@ const __FlashStringHelper *commandName(byte command)
     case 0x37: return F("silence_fire");
     case 0x38: return F("pairing_state");
     case 0x39: return F("pairing");
+    case 0x3A: return F("co_emergency_stop");
+    case 0x3B: return F("fire_emergency_stop");
     default: return F("unknown");
   }
 }
@@ -206,6 +208,17 @@ void SendTemplateToRadio(byte CMD)
     return;
   }
 
+  if (CMD == 0x3A || CMD == 0x3B) {
+    // Alarm stop as sent by FireAngel's Mesh Monitor software; not yet verified on a network.
+    byte command[] = {0x51, DevId0, DevId1, DevId2, (byte)((CMD == 0x3A) ? 0x41 : 0x81), 0x7E};
+    if (!sendAndExpect(command, sizeof(command), 0x46, 2, attempts)) {
+      printCommandResult(CMD, F("timeout"));
+      return;
+    }
+    printCommandResult(CMD, F("accepted"));
+    return;
+  }
+
   byte pairingState[] = {0xD3, 0x03, 0x7E};
   if (CMD == 0x38) {
     if (!sendAndExpect(pairingState, sizeof(pairingState), 0xD4, 11, 6)) {
@@ -297,6 +310,10 @@ void handleV2Command(char *json)
   if (!strcmp(name, "sound_co")) command = 0x31;
   else if (!strcmp(name, "sound_fire")) command = 0x32;
   else if (!strcmp(name, "sound_combined")) command = 0x33;
+  else if (!strcmp(name, "co_emergency")) command = 0x34;
+  else if (!strcmp(name, "fire_emergency")) command = 0x35;
+  else if (!strcmp(name, "co_emergency_stop")) command = 0x3A;
+  else if (!strcmp(name, "fire_emergency_stop")) command = 0x3B;
   else if (!strcmp(name, "silence_co")) command = 0x36;
   else if (!strcmp(name, "silence_fire")) command = 0x37;
   else if (!strcmp(name, "pairing_state")) command = 0x38;

@@ -1,7 +1,7 @@
 # WiSafe2 bridge serial protocol v2
 
 Protocol v2 is implemented by the dedicated
-`Arduino-V2/FireAngelNanoV2.ino` firmware. It is not a runtime mode of the
+`Arduino-Firmware/FireAngelNanoV2/FireAngelNanoV2.ino` firmware. It is not a runtime mode of the
 legacy firmware. Serial settings remain 115200 baud, 8 data bits, no parity,
 one stop bit.
 
@@ -116,13 +116,27 @@ Supported commands are:
 - `sound_co`
 - `sound_fire`
 - `sound_combined`
+- `co_emergency`
+- `fire_emergency`
+- `co_emergency_stop`
+- `fire_emergency_stop`
 - `silence_co`
 - `silence_fire`
 - `pairing_state`
 - `pairing`
 - `status`
 
-Emergency simulation is deliberately not exposed.
+### Emergency commands
+
+`co_emergency` and `fire_emergency` transmit a **real alarm** (`50 dev 41|81 00`)
+under the bridge device ID. Every detector in the WiSafe2 network sounds its
+alarm; this is not a test signal. `co_emergency_stop` and `fire_emergency_stop`
+transmit the alarm stop (`51 dev 41|81`) used by FireAngel's Mesh Monitor
+software; whether detectors end the alarm on it has not been verified yet.
+`silence_co`/`silence_fire` remain available. All four return `accepted` or
+`timeout` like the other commands; `accepted` only means the donor radio took
+the frame. Hosts should require an explicit user confirmation before sending
+an emergency command.
 
 A successfully accepted bridge-originated sound request produces:
 
@@ -182,7 +196,8 @@ The first line is unsolicited. `>` is host input and `<` is firmware output.
 
 ## Relationship to legacy firmware
 
-The improved legacy-only image is `Arduino/FireAngelNano.ino`. It preserves the
+The improved legacy-only image is
+`Arduino-Firmware/FireAngelNanoLegacy/FireAngelNanoLegacy.ino`. It preserves the
 original command bytes, `0x7E` framing, heartbeat, textual responses, and legacy
 JSON. Choosing between protocols is therefore a firmware-flashing decision,
 not a serial session setting. Home Assistant should parse both, detect V2 from

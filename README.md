@@ -7,8 +7,9 @@ A Home Assistant integration for FireAngel WiSafe2 fire and CO alarms via a cust
 
 ## Quick Links
 ---
-- [Improved legacy firmware](Arduino/FireAngelNano.ino)
-- [V2-only firmware](Arduino-V2/FireAngelNanoV2.ino)
+- [Improved legacy firmware](Arduino-Firmware/FireAngelNanoLegacy/FireAngelNanoLegacy.ino)
+- [V2-only firmware](Arduino-Firmware/FireAngelNanoV2/FireAngelNanoV2.ino)
+- [Debug firmware](Arduino-Firmware/FireAngelNanoDebug/FireAngelNanoDebug.ino)
 - [Firmware compatibility guide](docs/firmware-variants.md)
 - [Enclosure](Enclosure/WiSafe2-to-HA-Bridge-enclosure.stl)
 - [PCB (easyEDA)](PCB/WiSafe2HA-bridge-PCB.json)
@@ -304,9 +305,9 @@ Here's a link to the STL file for the enclosure I made: [Enclosure](https://gith
 ## Building the project
 Program the Arduino Nano with one of the two firmware images:
 
-* `Arduino/FireAngelNano.ino` is the improved legacy-only firmware and remains
-  compatible with the original serial protocol.
-* `Arduino-V2/FireAngelNanoV2.ino` is the V2-only newline-delimited JSON
+* `Arduino-Firmware/FireAngelNanoLegacy/FireAngelNanoLegacy.ino` is the improved
+  legacy-only firmware and remains compatible with the original serial protocol.
+* `Arduino-Firmware/FireAngelNanoV2/FireAngelNanoV2.ino` is the V2-only newline-delimited JSON
   firmware. It announces protocol 2 automatically during startup and requires
   a V2-capable Home Assistant integration.
 

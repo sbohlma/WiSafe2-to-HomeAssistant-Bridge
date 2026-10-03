@@ -5,7 +5,7 @@ one; protocol selection is not a runtime setting.
 
 ## Improved legacy firmware
 
-Path: `Arduino/FireAngelNano.ino`
+Path: `Arduino-Firmware/FireAngelNanoLegacy/FireAngelNanoLegacy.ino`
 
 This is based on the Stage 3 firmware: memory-safe reception, responsive management
 operations, watchdog recovery, internal protocol modelling, and diagnostics,
@@ -25,7 +25,7 @@ integration version that only understands the C19HOP protocol. It retains:
 
 ## V2-only firmware
 
-Path: `Arduino-V2/FireAngelNanoV2.ino`
+Path: `Arduino-Firmware/FireAngelNanoV2/FireAngelNanoV2.ino`
 
 Choose it only with a Home Assistant integration that supports protocol 2. In
 normal mode it emits newline-delimited JSON exclusively and identifies itself
@@ -84,10 +84,9 @@ the repository library directory explicitly:
 --libraries /path/to/WiSafe2-to-HomeAssistant-Bridge/libraries
 ```
 
-The Arduino CLI requires the sketch directory and main `.ino` basename to
-match. The repository paths already satisfy that rule for the V2 sketch. For
-the legacy sketch, the historic directory/file names differ, so copy it into a
-temporary matching directory before compiling.
+The Arduino IDE and CLI require the sketch directory and main `.ino` basename
+to match. All sketches under `Arduino-Firmware/` follow that rule, so they can
+be opened and compiled in place.
 
 Example targets:
 

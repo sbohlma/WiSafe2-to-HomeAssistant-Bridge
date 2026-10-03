@@ -10,8 +10,8 @@ The integration should support:
 | Firmware | Protocol | Required result |
 | --- | --- | --- |
 | Original C19HOP | Legacy | Fully supported |
-| Improved `Arduino/` image | Legacy | Fully supported |
-| `Arduino-V2/` image | Protocol 2 | Preferred structured protocol |
+| Improved `Arduino-Firmware/FireAngelNanoLegacy/` image | Legacy | Fully supported |
+| `Arduino-Firmware/FireAngelNanoV2/` image | Protocol 2 | Preferred structured protocol |
 
 The V2 wire format is defined in [serial-protocol-v2.md](serial-protocol-v2.md).
 
@@ -131,12 +131,17 @@ Use semantic command keys with an encoding table:
 | Sound CO test signal | `b"1~"` | `sound_co` |
 | Sound fire test signal | `b"2~"` | `sound_fire` |
 | Sound combined test signal | `b"3~"` | `sound_combined` |
+| CO emergency (real alarm) | `b"4~"` | `co_emergency` |
+| Fire emergency (real alarm) | `b"5~"` | `fire_emergency` |
+| Stop CO emergency | – | `co_emergency_stop` |
+| Stop fire emergency | – | `fire_emergency_stop` |
 | Silence as CO | `b"6~"` | `silence_co` |
 | Silence as fire | `b"7~"` | `silence_fire` |
 | Pairing state | `b"8~"` | `pairing_state` |
 | Start pairing | `b"9~"` | `pairing` |
 
-Keep emergency simulation absent.
+Emergency commands sound a real alarm on every detector. Expose them only
+behind an explicit confirmation and never from automations by default.
 
 Update the three Home Assistant button labels to say “Sound … test signal,”
 not “Test …” or “Test all.” Their success feedback means command acceptance
