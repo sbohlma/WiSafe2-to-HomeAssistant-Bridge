@@ -1,7 +1,8 @@
 # Firmware variants
 
-The repository contains two independent Arduino Nano sketches. Flash exactly
-one; protocol selection is not a runtime setting.
+The repository contains two independent Arduino Nano sketches for Home
+Assistant and one test firmware. Flash exactly one; protocol selection is not a
+runtime setting.
 
 ## Improved legacy firmware
 
@@ -40,6 +41,105 @@ legacy mode. Command acceptance and genuine detector test results are separate.
 The direct/raw hardware jumper remains available and retains raw `0x7E`
 framing.
 
+## Test firmware
+
+Path: `Arduino-Firmware/FireAngelNanoTest/FireAngelNanoTest.ino`
+
+A serial console to the radio module for protocol experiments; Home Assistant
+does not understand it. It builds on what was observed on a real network
+(FireAngel `wisafe-mm/docs/PROTOCOL_ANALYSIS_W2_MODULE.md`):
+
+- Nothing is sent at startup. The other images send `D3 19 50 00` at every
+  reset, which the radio module floods through the whole network, probably for
+  the reason under [Known issue](#known-issue-the-first-frame-after-a-reset-reaches-the-network);
+  opening the serial port resets a Nano.
+- Frames to the radio module are escaped (`7E` as `7D 01`, `7D` as `7D 02`).
+  Received frames are unescaped, `00` filler before a frame is dropped.
+- After an init and while remote requests are open, the radio module does not
+  clock bytes from the host for up to about 20 s. A frame of which no byte went
+  out is repeated every 500 ms for up to 60 s.
+- Commands keep 500 ms of quiet after the previous frame. Answers to the radio
+  module go first and do not wait.
+- Every `41` is answered with `91 dev(3) model(2) class 05 01 01`. `C3` and
+  `C1` are answered with `C4` and `C2`, and `72`, `C7` and `C5` with `73`,
+  `C8` (3000 mV) and `C6` if they carry the own device ID; each request type at
+  most once per 60 s.
+- Copies of network messages (same SID, type and sequence number within 60 s)
+  are marked and not answered again.
+- Bytes from the radio module are acknowledged in a pin-change interrupt on
+  chip select, so serial output cannot delay the IRQ pulse.
+
+Serial: 115200 baud, one command per line, case-insensitive.
+
+| Command | Frame | Note |
+|---|---|---|
+| `STATUS` | `D1` | status of the own radio module (`D2`) |
+| `MAP` | `D3 03` | local SID map (`D4 03`) |
+| `RS <sid>` | `D3 06 sid 00` | remote status of a radio module (`D4 06`) |
+| `IDQ <sid>` | `D3 06 sid 01` | ID request to the host of a radio module (`C4`) |
+| `S <hex>` | as given | read-only requests only: `D1`, `D3 03`, `D3 06 sid 00/01`, `72`/`C5`/`C7` with 7 bytes |
+| `S! <hex>` | as given | any frame up to 16 bytes; can sound detectors or change the network |
+| `INIT!` | `D3 19 50 00` | flooded through the network |
+| `IDENT [<id> <model> <class>]` | – | show or set the identity, e.g. `IDENT 13B8A5 785 FF`; stored in EEPROM, the radio module takes it at its next `41` |
+| `AUTO ON\|OFF` | – | automatic answers; stored in EEPROM |
+| `INFO`, `HELP` | – | settings and counters, command list |
+
+SIDs are decimal, device IDs in display order (`13B8A5` is sent as
+`A5 B8 13`), models decimal (785 = WST-630), classes hex. The default identity
+is that of the other images: `13B8A5`, model 785, class `FF`.
+
+Output lines start with a tag and the `millis()` time:
+
+```text
+I FireAngelNanoTest 1.0.0 ready; nothing is sent at startup, HELP lists the commands
+TX 5012 D3 06 1A 00: ok (46)
+RX 9310 D4 06 1A 64 8C 8C 7D EF 3D E4 2F 00 00  remote status SID 26, RM battery 2716 mV, ...
+RX 12001 C3 00 00 00 0F 0B  ID request, SID 15, seq 11
+AUTO 12020 C4 A5 B8 13 FF 11 03 (to C3): ok (46)
+```
+
+`RX` is a frame from the radio module (unescaped), `TX` an own command with its
+result, `AUTO` an automatic answer, `I`, `W`, `E` information, warning and error.
+The `46`/`47` that completes a command appears in its `TX` line only.
+
+The protocol logic without Arduino dependencies is in `w2_protocol.cpp`; the
+host tests in `tests/` compile with any C++11 compiler:
+
+```text
+c++ -std=c++11 -I.. ../w2_protocol.cpp test_w2_protocol.cpp -o test_w2_protocol
+```
+
+### Known issue: the first frame after a reset reaches the network
+
+Observed on 26 Oct 2026 with the Nano at SID 16 (PCB with BSS138 level
+converters, radio module powered by the Nano), a logic analyser on the radio
+module side of the level converters and a W2-MM dongle listening:
+
+- Every reset of the Nano, including opening the serial port, leaves bytes in
+  the radio module. The radio module clocks one full byte at the moment of the
+  reset and a cut-off one (3 clocks) about 1.1 s later, inside the bootloader;
+  nothing else happens on the bus until the first command.
+- The radio module then takes the next frame from the host as a radio message.
+  `D1` is acknowledged with `46` instead of answered with `D2`, and every node
+  relays a type `00` message `00 00 D1` from the own SID once, for about 7 s,
+  without any alarm. The second frame works normally.
+- A 10 kΩ pull-down from D9 to GND on the Nano side changed the relayed message
+  (no payload any more) but did not prevent it. The level converter has 10 kΩ
+  pull-ups, so during a reset D9 still rises to about 2.5 V.
+- On the radio module side IRQ is high for only about 1 µs per pulse, although
+  the Nano holds it high for a whole byte. The radio module reacts to the edge;
+  why the level does not stay high is not known yet.
+- The radio module does not restart: it clocks normally at the reset, keeps its
+  SID and answers the second `D1` without an init.
+
+Until the hardware is fixed, make `STATUS` the first command after every reset
+(its corrupted copy is the one observed above) and keep `AUTO OFF`, so that an
+automatic answer is never the first frame.
+
+Candidate fixes, not tested yet: a 1–2.2 kΩ pull-down on D9 (about
+0.45–0.9 V during a reset), or no auto-reset (10 µF between RST and GND; remove
+it or press reset for uploads).
+
 ## Detector testing semantics
 
 The attached donor radio can transmit fire, CO, or combined interlink test
@@ -73,6 +173,10 @@ The byte acquisition, bounded transaction, watchdog-safe wait, diagnostics, and
 frame decoder are shared by both sketches through the local
 `libraries/WiSafeRadioCore` Arduino library. Radio/SPI fixes belong there rather
 than being copied into each protocol frontend.
+
+The test firmware runs on the same hardware and pins but does not use
+`WiSafeRadioCore`: it brings its own interrupt-driven SPI handling and frame
+decoder, needs no extra library, and does not enable the watchdog.
 
 ## Arduino CLI builds
 

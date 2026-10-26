@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Test firmware (FireAngelNanoTest 1.0.0)
+
+- Add `Arduino-Firmware/FireAngelNanoTest`, a serial console to the radio
+  module for protocol experiments, not for Home Assistant.
+- Send nothing at startup; the init `D3 19 50 00` is an explicit command.
+- Escape `7E`/`7D` in frames to the radio module and repeat frames it does not
+  clock for up to 60 s.
+- Answer every `41` with `91`, and `C1`, `C3` and `72`/`C5`/`C7` for the own
+  device ID; mark copies of network messages.
+- Acknowledge radio bytes in a pin-change interrupt.
+- Keep the protocol logic in `w2_protocol.cpp` with host tests in `tests/`.
+- Document a hardware issue found with it: after every reset of the Nano the
+  first frame to the radio module is flooded through the network as a radio
+  message (see `docs/firmware-variants.md`).
+
 ### Firmware folder layout
 
 - Move all sketches into `Arduino-Firmware/` with matching sketch directories:
