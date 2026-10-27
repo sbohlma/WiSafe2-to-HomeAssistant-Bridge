@@ -16,6 +16,8 @@
 - Document a hardware issue found with it: after every reset of the Nano the
   first frame to the radio module is flooded through the network as a radio
   message (see `docs/firmware-variants.md`).
+- Require a 1 kΩ pull-down from D9 (IRQ) to GND; with it, resets leave nothing
+  on the bus and the first frame is handled normally (tested three times).
 
 ### Firmware folder layout
 

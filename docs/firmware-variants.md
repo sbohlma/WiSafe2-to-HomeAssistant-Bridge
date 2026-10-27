@@ -51,7 +51,7 @@ does not understand it. It builds on what was observed on a real network
 
 - Nothing is sent at startup. The other images send `D3 19 50 00` at every
   reset, which the radio module floods through the whole network, probably for
-  the reason under [Known issue](#known-issue-the-first-frame-after-a-reset-reaches-the-network);
+  the reason under [Hardware: 1 kΩ pull-down on IRQ](#hardware-1-kω-pull-down-on-irq-d9);
   opening the serial port resets a Nano.
 - Frames to the radio module are escaped (`7E` as `7D 01`, `7D` as `7D 02`).
   Received frames are unescaped, `00` filler before a frame is dropped.
@@ -109,36 +109,39 @@ host tests in `tests/` compile with any C++11 compiler:
 c++ -std=c++11 -I.. ../w2_protocol.cpp test_w2_protocol.cpp -o test_w2_protocol
 ```
 
-### Known issue: the first frame after a reset reaches the network
+### Hardware: 1 kΩ pull-down on IRQ (D9)
+
+Fit a 1 kΩ resistor from D9 to GND on the Nano side of the level converter.
+Without it, the first frame after every reset of the Nano reaches the network.
 
 Observed on 26 Oct 2026 with the Nano at SID 16 (PCB with BSS138 level
 converters, radio module powered by the Nano), a logic analyser on the radio
 module side of the level converters and a W2-MM dongle listening:
 
-- Every reset of the Nano, including opening the serial port, leaves bytes in
-  the radio module. The radio module clocks one full byte at the moment of the
+- Every reset of the Nano, including opening the serial port, left bytes in
+  the radio module. The radio module clocked one full byte at the moment of the
   reset and a cut-off one (3 clocks) about 1.1 s later, inside the bootloader;
-  nothing else happens on the bus until the first command.
-- The radio module then takes the next frame from the host as a radio message.
-  `D1` is acknowledged with `46` instead of answered with `D2`, and every node
-  relays a type `00` message `00 00 D1` from the own SID once, for about 7 s,
-  without any alarm. The second frame works normally.
-- A 10 kΩ pull-down from D9 to GND on the Nano side changed the relayed message
-  (no payload any more) but did not prevent it. The level converter has 10 kΩ
-  pull-ups, so during a reset D9 still rises to about 2.5 V.
-- On the radio module side IRQ is high for only about 1 µs per pulse, although
-  the Nano holds it high for a whole byte. The radio module reacts to the edge;
-  why the level does not stay high is not known yet.
-- The radio module does not restart: it clocks normally at the reset, keeps its
+  nothing else happened on the bus until the first command.
+- The radio module then took the next frame from the host as a radio message.
+  `D1` was acknowledged with `46` instead of answered with `D2`, and every node
+  relayed a type `00` message `00 00 D1` from the own SID once, for about 7 s,
+  without any alarm. The second frame worked normally.
+- The radio module does not restart at a reset: it clocks normally, keeps its
   SID and answers the second `D1` without an init.
+- During a reset D9 floats, and the 10 kΩ pull-up of the level converter pulls
+  it up. The edge makes the radio module clock a byte. A 10 kΩ pull-down only
+  halves the edge to about 2.5 V; it changed the relayed message (no payload
+  any more) but did not prevent it.
+- With 1 kΩ, D9 stays at about 0.45 V. On 27 Oct 2026 three resets in a row
+  left no byte on the bus, the first `D1` was answered with `D2` each time, and
+  the dongle heard no radio message. D9 then sources about 5 mA while high.
 
-Until the hardware is fixed, make `STATUS` the first command after every reset
-(its corrupted copy is the one observed above) and keep `AUTO OFF`, so that an
-automatic answer is never the first frame.
+Still open: on the radio module side IRQ is high for only about 1 µs per pulse,
+although the Nano holds it high for a whole byte. The radio module reacts to
+the edge and works reliably; why the level does not stay high is not known.
 
-Candidate fixes, not tested yet: a 1–2.2 kΩ pull-down on D9 (about
-0.45–0.9 V during a reset), or no auto-reset (10 µF between RST and GND; remove
-it or press reset for uploads).
+Without the pull-down, make `STATUS` the first command after every reset and
+keep `AUTO OFF`, so that an automatic answer is never the first frame.
 
 ## Detector testing semantics
 
@@ -176,7 +179,9 @@ than being copied into each protocol frontend.
 
 The test firmware runs on the same hardware and pins but does not use
 `WiSafeRadioCore`: it brings its own interrupt-driven SPI handling and frame
-decoder, needs no extra library, and does not enable the watchdog.
+decoder, needs no extra library, and does not enable the watchdog. It needs
+the 1 kΩ pull-down on D9 described under the test firmware; the other images
+probably benefit from it too.
 
 ## Arduino CLI builds
 
